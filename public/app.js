@@ -254,24 +254,86 @@ async function run() {
     return;
   }
 
+  let validationText = '';
+  try {
+    const analysis = extractWorkflowContextPathsFromCode(code);
+    const issues = analysis?.issues || [];
+    const requiredStructuralPaths = analysis?.requiredStructuralPaths || [];
+
+    const missing = [];
+
+    const pathExists = (obj, segments) => {
+      let cur = obj;
+      for (const seg of segments) {
+        if (cur === null || cur === undefined) return false;
+        if (typeof cur !== 'object') return false;
+        if (cur[seg] === undefined) return false;
+        cur = cur[seg];
+      }
+      return true;
+    };
+
+    const formatExpression = (segments) => {
+      // Human-friendly: show `workflowContext.<...>` access with brackets for unsafe keys.
+      let expr = 'workflowContext';
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        if (i === 0) {
+          expr += `.${seg}`;
+          continue;
+        }
+        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(seg)) expr += `.${seg}`;
+        else expr += `[${JSON.stringify(seg)}]`;
+      }
+      return expr;
+    };
+
+    for (const segs of requiredStructuralPaths) {
+      if (!pathExists(workflowContext, segs)) {
+        missing.push(formatExpression(segs));
+      }
+    }
+
+    if (issues.length > 0 || missing.length > 0) {
+      const issueText =
+        issues.length > 0
+          ? 'Potentially unsupported workflowContext access in code:\n' +
+            issues
+              .slice(0, 25)
+              .map((it) => `- ${formatExpression(it.path || [])}`)
+              .join('\n')
+          : '';
+      const missingText =
+        missing.length > 0 ? 'Missing structural workflowContext parts:\n' + missing.map((m) => `- ${m}`).join('\n') : '';
+
+      validationText = [issueText, missingText].filter(Boolean).join('\n\n');
+    }
+  } catch {
+    // If analysis can't run (e.g. acorn CDN blocked), we silently skip validation.
+  }
+
   const timeoutMs = Number($('timeoutMs').value);
   const mode = $('mode').value;
 
   if (mode === 'browser') {
     const data = await runInBrowserWorker({ code, workflowContext, timeoutMs });
     if (!data.ok) {
-      setPre('result', 'Error:\n' + formatError(data?.error));
+      const errText = 'Error:\n' + formatError(data?.error);
+      setPre('result', validationText ? `${validationText}\n\n${errText}` : errText);
       if (data?.logs?.length) {
         setPre('console', data.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
       }
       return;
     }
 
-    const resultText = [
+    const resultParts = [];
+    if (validationText) resultParts.push(validationText);
+    resultParts.push(
       `Execution time: ${data.executionTimeMs} ms`,
       '---',
-      data.resultInspect ?? '',
-    ].join('\n');
+      data.resultInspect ?? ''
+    );
+    const resultText = resultParts.join('\n');
     setPre('result', resultText);
 
     if (Array.isArray(data.logs) && data.logs.length > 0) {
@@ -296,18 +358,22 @@ async function run() {
 
   const data = await resp.json();
   if (!resp.ok || !data.ok) {
-    setPre('result', 'Error:\n' + formatError(data?.error));
+    const errText = 'Error:\n' + formatError(data?.error);
+    setPre('result', validationText ? `${validationText}\n\n${errText}` : errText);
     if (data?.logs?.length) {
       setPre('console', data.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
     }
     return;
   }
 
-  const resultText = [
+  const resultParts = [];
+  if (validationText) resultParts.push(validationText);
+  resultParts.push(
     `Execution time: ${data.executionTimeMs} ms`,
     '---',
-    data.resultInspect ?? '',
-  ].join('\n');
+    data.resultInspect ?? ''
+  );
+  const resultText = resultParts.join('\n');
   setPre('result', resultText);
 
   if (Array.isArray(data.logs) && data.logs.length > 0) {
@@ -373,13 +439,85 @@ function extractWorkflowContextPathsFromCode(codeText) {
   }
 
   // Wrap snippet as a function body so `return ...;` is valid during parsing.
-  const wrapped = `function __la__(){\n${codeText}\n}\n`;
+  // Don't use template literals here; the snippet itself might contain backticks.
+  const wrapped = 'function __la__(){\n' + codeText + '\n}\n';
   const ast = window.acorn.parse(wrapped, {
     ecmaVersion: 2022,
     sourceType: 'script',
   });
 
-  const paths = new Set();
+  const validPathsSet = new Set();
+  const validPaths = [];
+  const issues = [];
+  let skippedPaths = 0;
+
+  // Logic Apps Standard inline code exposes a structured `workflowContext`:
+  // - workflowContext.trigger.outputs.{body, headers}
+  // - workflowContext.actions[ActionName].outputs.{body, headers}
+  // We only "tighten" at these structural points; deeper fields under `body`/`headers`
+  // are connector-specific, so we don't validate them.
+  function isValidWorkflowContextSegments(segments) {
+    if (!Array.isArray(segments) || segments.length === 0) return { valid: false, reason: 'Empty path' };
+
+    const root = segments[0];
+    if (root !== 'trigger' && root !== 'actions' && root !== 'workflow') {
+      return { valid: false, reason: `Unknown workflowContext root "${root}"` };
+    }
+
+    if (root === 'trigger') {
+      const allowedTriggerKeys = new Set([
+        'name',
+        'inputs',
+        'outputs',
+        'startTime',
+        'endTime',
+        'scheduledTime',
+        'trackingId',
+        'clientTrackingId',
+        'originHistoryName',
+        'code',
+        'status',
+      ]);
+
+      if (segments.length >= 2 && !allowedTriggerKeys.has(segments[1])) {
+        return {
+          valid: false,
+          reason: `trigger.${String(segments[1])} is not a supported trigger property`,
+        };
+      }
+
+      // trigger.outputs.{body, headers}
+      if (segments[1] === 'outputs' && segments.length >= 3) {
+        const next = segments[2];
+        if (next !== 'body' && next !== 'headers') {
+          return { valid: false, reason: `trigger.outputs.${String(next)} is not a supported shape` };
+        }
+      }
+      return { valid: true };
+    }
+
+    if (root === 'actions') {
+      // actions[ActionName].outputs.{body, headers}
+      if (segments.length >= 3) {
+        const next = segments[2];
+        if (next !== 'outputs' && next !== 'inputs') {
+          return { valid: false, reason: `actions[ActionName].${String(next)} is not a supported shape` };
+        }
+
+        if (next === 'outputs' && segments.length >= 4) {
+          const outputKey = segments[3];
+          if (outputKey !== 'body' && outputKey !== 'headers') {
+            return { valid: false, reason: `actions[ActionName].outputs.${String(outputKey)} is not a supported shape` };
+          }
+        }
+      }
+
+      return { valid: true };
+    }
+
+    // workflow: can't easily validate without knowing the runtime shape.
+    return { valid: true };
+  }
 
   function getWorkflowContextPathSegments(memberNode) {
     let cur = memberNode;
@@ -432,7 +570,23 @@ function extractWorkflowContextPathsFromCode(codeText) {
 
     if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
       const segs = getWorkflowContextPathSegments(node);
-      if (segs && segs.length > 0) paths.add(JSON.stringify(segs));
+      if (segs && segs.length > 0) {
+        const check = isValidWorkflowContextSegments(segs);
+        if (check.valid) {
+          const key = JSON.stringify(segs);
+          if (!validPathsSet.has(key)) {
+            validPathsSet.add(key);
+            validPaths.push(segs);
+          }
+        } else {
+          // Keep the issue message short; show later as guidance.
+          skippedPaths += 1;
+          issues.push({
+            path: segs,
+            reason: check.reason || 'Invalid workflowContext access'
+          });
+        }
+      }
     }
 
     for (const key of Object.keys(node)) {
@@ -467,11 +621,41 @@ function extractWorkflowContextPathsFromCode(codeText) {
     }
   }
 
-  for (const p of paths) {
-    setPath(template, JSON.parse(p));
+  for (const segs of validPaths) {
+    setPath(template, segs);
   }
 
-  return { template, uniquePaths: paths.size };
+  // Only validate structural parts that are stable across runs.
+  // We look for these prefixes:
+  // - trigger.outputs.{body,headers}
+  // - actions[ActionName].outputs.{body,headers}
+  const requiredStructuralPathsSet = new Set();
+  const requiredStructuralPaths = [];
+  for (const segs of validPaths) {
+    if (segs[0] === 'trigger' && segs[1] === 'outputs' && segs.length >= 3) {
+      const key = JSON.stringify(['trigger', 'outputs', segs[2]]);
+      if (!requiredStructuralPathsSet.has(key)) {
+        requiredStructuralPathsSet.add(key);
+        requiredStructuralPaths.push(['trigger', 'outputs', segs[2]]);
+      }
+    }
+    if (segs[0] === 'actions' && segs[2] === 'outputs' && segs.length >= 4) {
+      const key = JSON.stringify(['actions', segs[1], 'outputs', segs[3]]);
+      if (!requiredStructuralPathsSet.has(key)) {
+        requiredStructuralPathsSet.add(key);
+        requiredStructuralPaths.push(['actions', segs[1], 'outputs', segs[3]]);
+      }
+    }
+  }
+
+  return {
+    template,
+    uniquePaths: validPaths.length,
+    validPaths,
+    issues,
+    skippedPaths,
+    requiredStructuralPaths
+  };
 }
 
 const genWorkflowContextBtn = $('genWorkflowContext');
@@ -482,7 +666,7 @@ if (genWorkflowContextBtn) {
 
     try {
       const codeText = getInlineCode();
-      const { template, uniquePaths } = extractWorkflowContextPathsFromCode(codeText);
+      const { template, uniquePaths, issues, skippedPaths } = extractWorkflowContextPathsFromCode(codeText);
 
       if (!uniquePaths) {
         setPre(
@@ -496,7 +680,22 @@ if (genWorkflowContextBtn) {
       applyWorkflowContextJson(pretty);
       workflowContextCases[selectedWorkflowContextName] = template;
       persistWorkflowContextCases();
-      setPre('result', `Generated workflowContext template from ${uniquePaths} path(s).`);
+      setPre(
+        'result',
+        `Generated workflowContext template from ${uniquePaths} valid path(s). Skipped ${skippedPaths} structurally unsupported path(s).`
+      );
+
+      if (Array.isArray(issues) && issues.length > 0) {
+        setPre(
+          'console',
+          'Validation issues (code -> workflowContext shape):\n' +
+            issues
+              .slice(0, 30)
+              .map((it) => `- ${JSON.stringify(it.path)}: ${it.reason}`)
+              .join('\n') +
+            (issues.length > 30 ? `\n...and ${issues.length - 30} more` : '')
+        );
+      }
     } catch (err) {
       setPre('result', 'Failed to generate workflowContext template:\n' + formatError(err));
     }
