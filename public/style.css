@@ -87,6 +87,17 @@ textarea {
   line-height: 1.4;
 }
 
+/* CodeMirror replaces the textarea visually */
+.CodeMirror {
+  height: 320px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #0f1731;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .actions {
   display: flex;
   align-items: end;

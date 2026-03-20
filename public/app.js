@@ -37,6 +37,8 @@ function setPre(id, text) {
   $(id).textContent = text;
 }
 
+let codeEditor = null;
+
 function formatError(err) {
   if (!err) return 'Unknown error';
   if (typeof err === 'string') return err;
@@ -46,7 +48,7 @@ function formatError(err) {
 }
 
 async function run() {
-  const code = $('code').value;
+  const code = codeEditor ? codeEditor.getValue() : $('code').value;
   setPre('result', '');
   setPre('console', '');
 
@@ -127,7 +129,25 @@ async function run() {
   }
 }
 
-setText('code', defaultCode);
+// Initialize CodeMirror for syntax highlighting.
+// CodeMirror replaces the textarea visually but we still keep it in sync.
+function initCodeEditor() {
+  const textarea = $('code');
+  if (!textarea || typeof window.CodeMirror === 'undefined') return;
+
+  codeEditor = window.CodeMirror.fromTextArea(textarea, {
+    mode: 'javascript',
+    theme: 'material-darker',
+    lineNumbers: true,
+    lineWrapping: true,
+    indentUnit: 2,
+    tabSize: 2,
+  });
+
+  codeEditor.setValue(defaultCode);
+}
+
+initCodeEditor();
 setText('workflowContext', defaultWorkflowContext);
 
 $('run').addEventListener('click', () => {
