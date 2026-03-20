@@ -231,6 +231,7 @@ async function runInBrowserWorker({ code, workflowContext, timeoutMs }) {
         if (done) return;
         done = true;
         worker.terminate();
+        URL.revokeObjectURL(url);
         resolve({
           ok: false,
           error: { name: 'TimeoutError', message: `Timed out after ${timeoutMs} ms`, stack: undefined },
