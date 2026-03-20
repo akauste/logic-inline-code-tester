@@ -144,6 +144,13 @@ button:hover {
   font-size: 12px;
 }
 
+.panel-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .pre {
   min-height: 160px;
   background: #0f1731;

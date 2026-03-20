@@ -37,6 +37,18 @@ function setPre(id, text) {
   $(id).textContent = text;
 }
 
+function getInlineCode() {
+  return codeEditor ? codeEditor.getValue() : $('code').value;
+}
+
+function applyWorkflowContextJson(jsonText) {
+  if (workflowContextEditor) {
+    workflowContextEditor.setValue(jsonText);
+  } else {
+    $('workflowContext').value = jsonText;
+  }
+}
+
 let codeEditor = null;
 let workflowContextEditor = null;
 
@@ -49,7 +61,7 @@ function formatError(err) {
 }
 
 async function run() {
-  const code = codeEditor ? codeEditor.getValue() : $('code').value;
+  const code = getInlineCode();
   setPre('result', '');
   setPre('console', '');
 
@@ -176,6 +188,140 @@ function initWorkflowContextEditor() {
 }
 
 initWorkflowContextEditor();
+
+function extractWorkflowContextPathsFromCode(codeText) {
+  if (typeof window.acorn === 'undefined' || typeof window.acorn.parse !== 'function') {
+    throw new Error('Acorn did not load; cannot generate template.');
+  }
+
+  // Wrap snippet as a function body so `return ...;` is valid during parsing.
+  const wrapped = `function __la__(){\n${codeText}\n}\n`;
+  const ast = window.acorn.parse(wrapped, {
+    ecmaVersion: 2022,
+    sourceType: 'script',
+  });
+
+  const paths = new Set();
+
+  function getWorkflowContextPathSegments(memberNode) {
+    let cur = memberNode;
+    const segments = [];
+
+    // Walk backwards through `workflowContext...` chains until we reach the base identifier.
+    while (cur) {
+      if (cur.type === 'ChainExpression') {
+        cur = cur.expression;
+        continue;
+      }
+
+      if (cur.type === 'MemberExpression' || cur.type === 'OptionalMemberExpression') {
+        const computed = !!cur.computed;
+        const prop = cur.property;
+
+        if (computed) {
+          if (prop.type === 'Literal') {
+            segments.unshift(String(prop.value));
+          } else if (
+            prop.type === 'TemplateLiteral' &&
+            prop.expressions.length === 0 &&
+            prop.quasis.length === 1
+          ) {
+            segments.unshift(prop.quasis[0].value.cooked ?? '');
+          } else {
+            return null; // dynamic property key: can't template reliably
+          }
+        } else {
+          if (prop.type === 'Identifier') segments.unshift(prop.name);
+          else return null;
+        }
+
+        cur = cur.object;
+        continue;
+      }
+
+      if (cur.type === 'Identifier' && cur.name === 'workflowContext') {
+        return segments;
+      }
+
+      return null;
+    }
+
+    return null;
+  }
+
+  function visit(node) {
+    if (!node || typeof node !== 'object') return;
+
+    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+      const segs = getWorkflowContextPathSegments(node);
+      if (segs && segs.length > 0) paths.add(JSON.stringify(segs));
+    }
+
+    for (const key of Object.keys(node)) {
+      const value = node[key];
+      if (!value) continue;
+      if (Array.isArray(value)) {
+        for (const child of value) visit(child);
+      } else if (value && typeof value === 'object' && typeof value.type === 'string') {
+        visit(value);
+      }
+    }
+  }
+
+  visit(ast);
+
+  const template = {};
+
+  function setPath(root, segments) {
+    let cur = root;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const isLeaf = i === segments.length - 1;
+      if (isLeaf) {
+        if (cur[seg] === undefined) cur[seg] = null;
+      } else {
+        const next = cur[seg];
+        if (!next || typeof next !== 'object' || Array.isArray(next)) {
+          cur[seg] = {};
+        }
+        cur = cur[seg];
+      }
+    }
+  }
+
+  for (const p of paths) {
+    setPath(template, JSON.parse(p));
+  }
+
+  return { template, uniquePaths: paths.size };
+}
+
+const genWorkflowContextBtn = $('genWorkflowContext');
+if (genWorkflowContextBtn) {
+  genWorkflowContextBtn.addEventListener('click', () => {
+    setPre('console', '');
+    setPre('result', '');
+
+    try {
+      const codeText = getInlineCode();
+      const { template, uniquePaths } = extractWorkflowContextPathsFromCode(codeText);
+
+      if (!uniquePaths) {
+        setPre(
+          'result',
+          'No `workflowContext.*` property access found in the inline code snippet.'
+        );
+        return;
+      }
+
+      const pretty = JSON.stringify(template, null, 2);
+      applyWorkflowContextJson(pretty);
+      setPre('result', `Generated workflowContext template from ${uniquePaths} path(s).`);
+    } catch (err) {
+      setPre('result', 'Failed to generate workflowContext template:\n' + formatError(err));
+    }
+  });
+}
 
 $('run').addEventListener('click', () => {
   run().catch((err) => setPre('result', 'Error:\n' + formatError(err)));

@@ -9,6 +9,7 @@ Local web UI for testing the **Execute JavaScript Code** action used in Logic Ap
 - Runs the snippet locally in either:
   - Node.js (sandboxed `vm` on the server), or
   - the browser (Web Worker).
+- In the UI, you can generate a `workflowContext` JSON skeleton from your inline code (button: `Generate from Inline Code`).
 - Shows:
   - returned `Result` (via `return ...`)
   - captured `console.log/info/warn/error`
