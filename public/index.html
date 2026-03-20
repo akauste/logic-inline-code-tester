@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Logic Apps Standard Inline Code Tester</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Inline Code Tester (Logic Apps Standard)</h1>
+        <p class="sub">
+          Paste your <code>Execute JavaScript Code</code> snippet and a mocked <code>workflowContext</code>.
+          Runs locally in a sandboxed Node.js <code>vm</code>.
+        </p>
+      </header>
+
+      <section class="grid">
+        <div class="panel">
+          <div class="panel-title">Inline Code</div>
+          <textarea id="code" spellcheck="false"></textarea>
+          <div class="hint">
+            Your snippet is treated like a “method body”. Use <code>return</code> if you want a value back.
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">workflowContext JSON</div>
+          <textarea id="workflowContext" spellcheck="false"></textarea>
+          <div class="hint">
+            Shape matches Logic Apps Standard: <code>{ actions, trigger, workflow }</code>.
+          </div>
+        </div>
+      </section>
+
+      <section class="actions">
+        <label class="field">
+          Timeout (ms)
+          <input id="timeoutMs" type="number" min="50" max="5000" step="50" value="1000" />
+        </label>
+
+        <button id="run">Run</button>
+      </section>
+
+      <section class="bottom-grid">
+        <div class="panel">
+          <div class="panel-title">Result</div>
+          <pre id="result" class="pre"></pre>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Console</div>
+          <pre id="console" class="pre"></pre>
+        </div>
+      </section>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+
