@@ -151,6 +151,43 @@ button:hover {
   gap: 10px;
 }
 
+.context-manager {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.context-manager input[type='text'] {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #0f1731;
+  color: var(--text);
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+}
+
+button.danger {
+  border-color: rgba(255, 107, 107, 0.8);
+  background: rgba(255, 107, 107, 0.12);
+}
+
+button.danger:hover {
+  border-color: rgba(255, 107, 107, 1);
+  background: rgba(255, 107, 107, 0.18);
+}
+
 .pre {
   min-height: 160px;
   background: #0f1731;

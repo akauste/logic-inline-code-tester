@@ -36,6 +36,27 @@
           <div class="hint">
             Shape matches Logic Apps Standard: <code>{ actions, trigger, workflow }</code>.
           </div>
+          <div class="context-manager">
+            <label class="field">
+              Test case
+              <select id="contextSelect"></select>
+            </label>
+
+            <div class="inline-row">
+              <input
+                id="newContextName"
+                type="text"
+                placeholder="New name"
+                autocomplete="off"
+              />
+              <button id="saveNewContext" type="button">Save As</button>
+            </div>
+
+            <div class="inline-row">
+              <button id="updateSelectedContext" type="button">Update Selected</button>
+              <button id="deleteSelectedContext" type="button" class="danger">Delete</button>
+            </div>
+          </div>
           <div class="panel-actions">
             <button id="genWorkflowContext" type="button">
               Generate from Inline Code

@@ -10,6 +10,10 @@ Local web UI for testing the **Execute JavaScript Code** action used in Logic Ap
   - Node.js (sandboxed `vm` on the server), or
   - the browser (Web Worker).
 - In the UI, you can generate a `workflowContext` JSON skeleton from your inline code (button: `Generate from Inline Code`).
+- You can store multiple named `workflowContext` test cases in the UI:
+  - select one from the `Test case` dropdown
+  - edit JSON in the editor
+  - click `Update Selected` to persist, or `Save As` to create a new case
 - Shows:
   - returned `Result` (via `return ...`)
   - captured `console.log/info/warn/error`

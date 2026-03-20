@@ -52,12 +52,189 @@ function applyWorkflowContextJson(jsonText) {
 let codeEditor = null;
 let workflowContextEditor = null;
 
+const WORKFLOW_CONTEXT_STORAGE_KEY = 'logicInlineCodeTester.workflowContexts.v1';
+const DEFAULT_WORKFLOW_CONTEXT_NAME = 'default';
+let workflowContextCases = {};
+let selectedWorkflowContextName = DEFAULT_WORKFLOW_CONTEXT_NAME;
+let workflowContextUIBound = false;
+
 function formatError(err) {
   if (!err) return 'Unknown error';
   if (typeof err === 'string') return err;
   const name = err.name ? `${err.name}: ` : '';
   const msg = err.message ? err.message : String(err);
   return name + msg + (err.stack ? `\n\n${err.stack}` : '');
+}
+
+function getCurrentWorkflowContextRaw() {
+  return (workflowContextEditor ? workflowContextEditor.getValue() : $('workflowContext').value).trim();
+}
+
+function getCurrentWorkflowContextObject() {
+  const raw = getCurrentWorkflowContextRaw();
+  if (!raw) return {};
+  return JSON.parse(raw);
+}
+
+function persistWorkflowContextCases() {
+  try {
+    localStorage.setItem(
+      WORKFLOW_CONTEXT_STORAGE_KEY,
+      JSON.stringify({ selectedWorkflowContextName, workflowContextCases })
+    );
+  } catch {
+    // Best effort only.
+  }
+}
+
+function loadWorkflowContextCasesFromStorage() {
+  try {
+    const raw = localStorage.getItem(WORKFLOW_CONTEXT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const cases = parsed.workflowContextCases;
+    const selected = parsed.selectedWorkflowContextName;
+    if (!cases || typeof cases !== 'object') return null;
+    return { cases, selected };
+  } catch {
+    return null;
+  }
+}
+
+function initWorkflowContextTestCasesUI() {
+  const fromStorage = loadWorkflowContextCasesFromStorage();
+  if (fromStorage) {
+    workflowContextCases = fromStorage.cases;
+    selectedWorkflowContextName = fromStorage.selected || Object.keys(workflowContextCases)[0];
+  } else {
+    // Seed with the default template.
+    try {
+      workflowContextCases = { [DEFAULT_WORKFLOW_CONTEXT_NAME]: JSON.parse(defaultWorkflowContext) };
+    } catch {
+      workflowContextCases = { [DEFAULT_WORKFLOW_CONTEXT_NAME]: {} };
+    }
+    selectedWorkflowContextName = DEFAULT_WORKFLOW_CONTEXT_NAME;
+  }
+
+  const contextSelect = $('contextSelect');
+  const saveNewBtn = $('saveNewContext');
+  const updateSelectedBtn = $('updateSelectedContext');
+  const deleteSelectedBtn = $('deleteSelectedContext');
+  const newNameInput = $('newContextName');
+
+  if (contextSelect) {
+    contextSelect.innerHTML = '';
+    const names = Object.keys(workflowContextCases).sort((a, b) => a.localeCompare(b));
+    for (const name of names) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      contextSelect.appendChild(opt);
+    }
+
+    if (names.includes(selectedWorkflowContextName)) {
+      contextSelect.value = selectedWorkflowContextName;
+    } else if (names.length > 0) {
+      selectedWorkflowContextName = names[0];
+      contextSelect.value = selectedWorkflowContextName;
+    }
+  }
+
+  const setEditorToCase = (name) => {
+    const obj = workflowContextCases[name];
+    const pretty = JSON.stringify(obj ?? {}, null, 2);
+    applyWorkflowContextJson(pretty);
+    selectedWorkflowContextName = name;
+  };
+
+  if (!workflowContextUIBound && contextSelect) {
+    contextSelect.addEventListener('change', () => {
+      const name = contextSelect.value;
+      setPre('result', '');
+      setPre('console', '');
+      setEditorToCase(name);
+      persistWorkflowContextCases();
+    });
+  }
+
+  if (!workflowContextUIBound && saveNewBtn && newNameInput) {
+    saveNewBtn.addEventListener('click', () => {
+      setPre('result', '');
+      setPre('console', '');
+
+      const name = newNameInput.value.trim();
+      if (!name) {
+        setPre('result', 'Please enter a name for the new workflowContext test case.');
+        return;
+      }
+
+      try {
+        const obj = getCurrentWorkflowContextObject();
+        workflowContextCases[name] = obj;
+        selectedWorkflowContextName = name;
+        persistWorkflowContextCases();
+        newNameInput.value = '';
+        setPre('result', `Saved workflowContext test case: ${name}`);
+        initWorkflowContextTestCasesUI();
+      } catch (err) {
+        setPre('result', 'Invalid workflowContext JSON:\n' + formatError(err));
+      }
+    });
+  }
+
+  if (!workflowContextUIBound && updateSelectedBtn) {
+    updateSelectedBtn.addEventListener('click', () => {
+      setPre('result', '');
+      setPre('console', '');
+      if (!selectedWorkflowContextName) {
+        setPre('result', 'No test case selected.');
+        return;
+      }
+
+      try {
+        const obj = getCurrentWorkflowContextObject();
+        workflowContextCases[selectedWorkflowContextName] = obj;
+        persistWorkflowContextCases();
+        setPre('result', `Updated: ${selectedWorkflowContextName}`);
+      } catch (err) {
+        setPre('result', 'Invalid workflowContext JSON:\n' + formatError(err));
+      }
+    });
+  }
+
+  if (!workflowContextUIBound && deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', () => {
+      setPre('result', '');
+      setPre('console', '');
+      if (!selectedWorkflowContextName) {
+        setPre('result', 'No test case selected.');
+        return;
+      }
+
+      const name = selectedWorkflowContextName;
+      if (!window.confirm(`Delete workflowContext test case "${name}"?`)) return;
+
+      delete workflowContextCases[name];
+      const remaining = Object.keys(workflowContextCases);
+
+      if (remaining.length === 0) {
+        workflowContextCases[DEFAULT_WORKFLOW_CONTEXT_NAME] = {};
+        selectedWorkflowContextName = DEFAULT_WORKFLOW_CONTEXT_NAME;
+      } else {
+        selectedWorkflowContextName = remaining.sort((a, b) => a.localeCompare(b))[0];
+      }
+
+      persistWorkflowContextCases();
+      initWorkflowContextTestCasesUI();
+      setPre('result', `Deleted: ${name}`);
+    });
+  }
+
+  // Load selected case into editor at startup.
+  if (selectedWorkflowContextName) setEditorToCase(selectedWorkflowContextName);
+
+  workflowContextUIBound = true;
 }
 
 async function run() {
@@ -188,6 +365,7 @@ function initWorkflowContextEditor() {
 }
 
 initWorkflowContextEditor();
+initWorkflowContextTestCasesUI();
 
 function extractWorkflowContextPathsFromCode(codeText) {
   if (typeof window.acorn === 'undefined' || typeof window.acorn.parse !== 'function') {
@@ -316,6 +494,8 @@ if (genWorkflowContextBtn) {
 
       const pretty = JSON.stringify(template, null, 2);
       applyWorkflowContextJson(pretty);
+      workflowContextCases[selectedWorkflowContextName] = template;
+      persistWorkflowContextCases();
       setPre('result', `Generated workflowContext template from ${uniquePaths} path(s).`);
     } catch (err) {
       setPre('result', 'Failed to generate workflowContext template:\n' + formatError(err));
