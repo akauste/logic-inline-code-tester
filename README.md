@@ -22,6 +22,12 @@ npm start
 
 Open: `http://localhost:3000`
 
+To stop the server:
+
+```powershell
+npm run stop
+```
+
 ## Request format (for `/api/run`)
 
 ```json

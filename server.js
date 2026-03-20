@@ -1,7 +1,26 @@
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const vm = require('vm');
 const util = require('util');
+
+const pidFile = path.join(__dirname, 'server.pid');
+
+function writePid() {
+  try {
+    fs.writeFileSync(pidFile, String(process.pid), 'utf8');
+  } catch {
+    // Best effort only.
+  }
+}
+
+function cleanupPidFile() {
+  try {
+    fs.unlinkSync(pidFile);
+  } catch {
+    // Best effort only.
+  }
+}
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -101,8 +120,19 @@ app.post('/api/run', (req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
+writePid();
 app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`Logic Inline Code Tester running at http://localhost:${port}`);
+});
+
+process.on('exit', cleanupPidFile);
+process.on('SIGINT', () => {
+  cleanupPidFile();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  cleanupPidFile();
+  process.exit(0);
 });
 
