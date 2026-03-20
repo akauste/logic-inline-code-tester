@@ -133,7 +133,12 @@ async function run() {
 // CodeMirror replaces the textarea visually but we still keep it in sync.
 function initCodeEditor() {
   const textarea = $('code');
-  if (!textarea || typeof window.CodeMirror === 'undefined') return;
+  if (!textarea) return;
+  if (typeof window.CodeMirror === 'undefined') {
+    // Useful when CDN assets are blocked/offline; avoid silent failure.
+    console.warn('CodeMirror did not load (window.CodeMirror is undefined).');
+    return;
+  }
 
   codeEditor = window.CodeMirror.fromTextArea(textarea, {
     mode: 'javascript',
