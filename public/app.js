@@ -38,6 +38,7 @@ function setPre(id, text) {
 }
 
 let codeEditor = null;
+let workflowContextEditor = null;
 
 function formatError(err) {
   if (!err) return 'Unknown error';
@@ -53,7 +54,10 @@ async function run() {
   setPre('console', '');
 
   let workflowContext;
-  const workflowContextRaw = $('workflowContext').value.trim();
+  const workflowContextRaw = (workflowContextEditor
+    ? workflowContextEditor.getValue()
+    : $('workflowContext').value
+  ).trim();
   try {
     workflowContext = workflowContextRaw ? JSON.parse(workflowContextRaw) : {};
   } catch (err) {
@@ -153,7 +157,25 @@ function initCodeEditor() {
 }
 
 initCodeEditor();
-setText('workflowContext', defaultWorkflowContext);
+function initWorkflowContextEditor() {
+  const textarea = $('workflowContext');
+  if (!textarea) return;
+  if (typeof window.CodeMirror === 'undefined') return;
+
+  workflowContextEditor = window.CodeMirror.fromTextArea(textarea, {
+    // Treat as JSON, but rendered by the JS mode with json enabled.
+    mode: { name: 'javascript', json: true },
+    theme: 'material-darker',
+    lineNumbers: true,
+    lineWrapping: true,
+    indentUnit: 2,
+    tabSize: 2,
+  });
+
+  workflowContextEditor.setValue(defaultWorkflowContext);
+}
+
+initWorkflowContextEditor();
 
 $('run').addEventListener('click', () => {
   run().catch((err) => setPre('result', 'Error:\n' + formatError(err)));
