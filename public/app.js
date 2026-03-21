@@ -3,7 +3,6 @@ const $ = (id) => document.getElementById(id);
 const defaultCode = `// Example: extract email addresses from the trigger body
 // Tip: reference data via workflowContext, matching Logic Apps Standard.
 const text =
-  workflowContext?.trigger?.outputs?.body?.Body ??
   workflowContext?.trigger?.outputs?.body?.body ??
   "";
 
@@ -37,6 +36,30 @@ function setText(id, value) {
 
 function setPre(id, text) {
   $(id).textContent = text;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function setResultRich(lines) {
+  const el = $('result');
+  if (!el) return;
+  const rendered = (lines || [])
+    .map((line) => {
+      if (typeof line === 'string') {
+        return `<span class="result-line">${escapeHtml(line)}</span>`;
+      }
+      const kind = line?.kind ? ` result-${line.kind}` : '';
+      return `<span class="result-line${kind}">${escapeHtml(line?.text ?? '')}</span>`;
+    })
+    .join('\n');
+  el.innerHTML = rendered;
 }
 
 function getInlineCode() {
@@ -449,7 +472,10 @@ async function run() {
 
   if (!runData?.ok) {
     const errText = 'Error:\n' + formatError(runData?.error);
-    setPre('result', validationText ? `${validationText}\n\n${errText}` : errText);
+    const lines = [];
+    if (validationText) lines.push({ kind: 'warn', text: `⚠ ${validationText}` });
+    lines.push({ kind: 'error', text: `💥 ${errText}` });
+    setResultRich(lines);
     if (runData?.logs?.length) {
       setPre('console', runData.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
     }
@@ -457,11 +483,19 @@ async function run() {
   }
 
   const resultParts = [];
-  if (validationText) resultParts.push(validationText);
+  if (validationText) resultParts.push({ kind: 'warn', text: `⚠ ${validationText}` });
   if (assertionOutcome?.hasAssertion) {
     resultParts.push(
-      `Assertion (${selectedWorkflowContextName}): ${assertionOutcome.passed ? 'PASS' : 'FAIL'}`,
-      assertionOutcome.message
+      {
+        kind: assertionOutcome.passed ? 'pass' : 'fail',
+        text: `${assertionOutcome.passed ? '✅' : '❌'} Assertion (${selectedWorkflowContextName}): ${
+          assertionOutcome.passed ? 'PASS' : 'FAIL'
+        }`,
+      },
+      {
+        kind: assertionOutcome.passed ? 'pass' : 'fail',
+        text: assertionOutcome.message,
+      }
     );
   }
   resultParts.push(
@@ -469,7 +503,7 @@ async function run() {
     '---',
     runData.resultInspect ?? ''
   );
-  setPre('result', resultParts.join('\n'));
+  setResultRich(resultParts);
 
   if (Array.isArray(runData.logs) && runData.logs.length > 0) {
     setPre('console', runData.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
@@ -862,22 +896,22 @@ async function runAllTestCases() {
 
     if (!runData?.ok) {
       errorCount += 1;
-      summaryLines.push(`- ${caseName}: ERROR - ${formatError(runData?.error)}`);
+      summaryLines.push({ kind: 'error', text: `💥 ${caseName}: ERROR - ${formatError(runData?.error)}` });
     } else if (assertionOutcome?.hasAssertion) {
       if (assertionOutcome.passed) {
         passCount += 1;
-        summaryLines.push(`- ${caseName}: PASS`);
+        summaryLines.push({ kind: 'pass', text: `✅ ${caseName}: PASS` });
       } else {
         failCount += 1;
-        summaryLines.push(`- ${caseName}: FAIL - ${assertionOutcome.message}`);
+        summaryLines.push({ kind: 'fail', text: `❌ ${caseName}: FAIL - ${assertionOutcome.message}` });
       }
     } else {
       failCount += 1;
-      summaryLines.push(`- ${caseName}: FAIL - No assertion defined`);
+      summaryLines.push({ kind: 'fail', text: `❌ ${caseName}: FAIL - No assertion defined` });
     }
 
     if (validationText) {
-      summaryLines.push(`  validation: ${validationText.replace(/\n/g, ' | ')}`);
+      summaryLines.push({ kind: 'warn', text: `⚠ ${caseName} validation: ${validationText.replace(/\n/g, ' | ')}` });
     }
 
     if (Array.isArray(runData?.logs) && runData.logs.length > 0) {
@@ -889,8 +923,10 @@ async function runAllTestCases() {
   }
 
   const total = caseNames.length;
-  const header = `Run All completed (${mode} mode): ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`;
-  setPre('result', [header, '---', ...summaryLines].join('\n'));
+  const headerKind = failCount === 0 && errorCount === 0 ? 'pass' : 'fail';
+  const headerSymbol = headerKind === 'pass' ? '✅' : '❌';
+  const header = `${headerSymbol} Run All completed (${mode} mode): ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`;
+  setResultRich([{ kind: headerKind, text: header }, '---', ...summaryLines]);
 
   if (consoleSections.length > 0) {
     setPre('console', consoleSections.join('\n'));

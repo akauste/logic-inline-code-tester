@@ -214,6 +214,29 @@ button.danger:hover {
   line-height: 1.4;
 }
 
+.result-line {
+  display: block;
+}
+
+.result-pass {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.result-fail {
+  color: #f87171;
+  font-weight: 700;
+}
+
+.result-error {
+  color: #fb7185;
+  font-weight: 700;
+}
+
+.result-warn {
+  color: #fbbf24;
+}
+
 @media (max-width: 900px) {
   .grid,
   .bottom-grid {
