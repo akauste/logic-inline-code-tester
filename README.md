@@ -17,6 +17,7 @@ Local web UI for testing the **Execute JavaScript Code** action used in Logic Ap
 - Each test case can include an assertion expression (paired with that test case).
   - Assertion must evaluate to `true`
   - Available variables in assertion: `result`, `workflowContext`
+- You can run all saved test cases at once with `Run All Test Cases` in the UI.
 - Shows:
   - returned `Result` (via `return ...`)
   - captured `console.log/info/warn/error`

@@ -159,6 +159,110 @@ function evaluateAssertion({ assertionText, resultValue, workflowContext }) {
   };
 }
 
+function buildValidationText(code, workflowContext) {
+  let validationText = '';
+  try {
+    const analysis = extractWorkflowContextPathsFromCode(code);
+    const issues = analysis?.issues || [];
+    const requiredStructuralPaths = analysis?.requiredStructuralPaths || [];
+
+    const missing = [];
+
+    const pathExists = (obj, segments) => {
+      let cur = obj;
+      for (const seg of segments) {
+        if (cur === null || cur === undefined) return false;
+        if (typeof cur !== 'object') return false;
+        if (cur[seg] === undefined) return false;
+        cur = cur[seg];
+      }
+      return true;
+    };
+
+    const formatExpression = (segments) => {
+      let expr = 'workflowContext';
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        if (i === 0) {
+          expr += `.${seg}`;
+          continue;
+        }
+        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(seg)) expr += `.${seg}`;
+        else expr += `[${JSON.stringify(seg)}]`;
+      }
+      return expr;
+    };
+
+    for (const segs of requiredStructuralPaths) {
+      if (!pathExists(workflowContext, segs)) {
+        missing.push(formatExpression(segs));
+      }
+    }
+
+    if (issues.length > 0 || missing.length > 0) {
+      const issueText =
+        issues.length > 0
+          ? 'Potentially unsupported workflowContext access in code:\n' +
+            issues
+              .slice(0, 25)
+              .map((it) => `- ${formatExpression(it.path || [])}`)
+              .join('\n')
+          : '';
+      const missingText =
+        missing.length > 0
+          ? 'Missing structural workflowContext parts:\n' + missing.map((m) => `- ${m}`).join('\n')
+          : '';
+
+      validationText = [issueText, missingText].filter(Boolean).join('\n\n');
+    }
+  } catch {
+    // If analysis can't run (e.g. acorn CDN blocked), skip validation.
+  }
+  return validationText;
+}
+
+async function executeCase({ code, workflowContext, assertionText, mode, timeoutMs }) {
+  const validationText = buildValidationText(code, workflowContext);
+
+  let runData;
+  if (mode === 'browser') {
+    runData = await runInBrowserWorker({ code, workflowContext, timeoutMs });
+  } else {
+    const resp = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, workflowContext, timeoutMs }),
+    });
+    runData = await resp.json();
+    if (!resp.ok) {
+      runData = {
+        ok: false,
+        error: runData?.error || { message: `HTTP ${resp.status}` },
+        logs: runData?.logs || [],
+      };
+    }
+  }
+
+  let assertionOutcome = null;
+  if (runData?.ok) {
+    try {
+      assertionOutcome = evaluateAssertion({
+        assertionText,
+        resultValue: runData.resultValue,
+        workflowContext,
+      });
+    } catch (err) {
+      assertionOutcome = {
+        hasAssertion: true,
+        passed: false,
+        message: `Assertion error: ${formatError(err)}`,
+      };
+    }
+  }
+
+  return { runData, validationText, assertionOutcome };
+}
+
 function initWorkflowContextTestCasesUI() {
   const fromStorage = loadWorkflowContextCasesFromStorage();
   if (fromStorage) {
@@ -333,152 +437,23 @@ async function run() {
     return;
   }
 
-  let validationText = '';
-  try {
-    const analysis = extractWorkflowContextPathsFromCode(code);
-    const issues = analysis?.issues || [];
-    const requiredStructuralPaths = analysis?.requiredStructuralPaths || [];
-
-    const missing = [];
-
-    const pathExists = (obj, segments) => {
-      let cur = obj;
-      for (const seg of segments) {
-        if (cur === null || cur === undefined) return false;
-        if (typeof cur !== 'object') return false;
-        if (cur[seg] === undefined) return false;
-        cur = cur[seg];
-      }
-      return true;
-    };
-
-    const formatExpression = (segments) => {
-      // Human-friendly: show `workflowContext.<...>` access with brackets for unsafe keys.
-      let expr = 'workflowContext';
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        if (i === 0) {
-          expr += `.${seg}`;
-          continue;
-        }
-        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(seg)) expr += `.${seg}`;
-        else expr += `[${JSON.stringify(seg)}]`;
-      }
-      return expr;
-    };
-
-    for (const segs of requiredStructuralPaths) {
-      if (!pathExists(workflowContext, segs)) {
-        missing.push(formatExpression(segs));
-      }
-    }
-
-    if (issues.length > 0 || missing.length > 0) {
-      const issueText =
-        issues.length > 0
-          ? 'Potentially unsupported workflowContext access in code:\n' +
-            issues
-              .slice(0, 25)
-              .map((it) => `- ${formatExpression(it.path || [])}`)
-              .join('\n')
-          : '';
-      const missingText =
-        missing.length > 0 ? 'Missing structural workflowContext parts:\n' + missing.map((m) => `- ${m}`).join('\n') : '';
-
-      validationText = [issueText, missingText].filter(Boolean).join('\n\n');
-    }
-  } catch {
-    // If analysis can't run (e.g. acorn CDN blocked), we silently skip validation.
-  }
-
   const timeoutMs = Number($('timeoutMs').value);
   const mode = $('mode').value;
-
-  if (mode === 'browser') {
-    const data = await runInBrowserWorker({ code, workflowContext, timeoutMs });
-    if (!data.ok) {
-      const errText = 'Error:\n' + formatError(data?.error);
-      setPre('result', validationText ? `${validationText}\n\n${errText}` : errText);
-      if (data?.logs?.length) {
-        setPre('console', data.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
-      }
-      return;
-    }
-
-    let assertionOutcome = null;
-    try {
-      assertionOutcome = evaluateAssertion({
-        assertionText,
-        resultValue: data.resultValue,
-        workflowContext,
-      });
-    } catch (err) {
-      assertionOutcome = {
-        hasAssertion: true,
-        passed: false,
-        message: `Assertion error: ${formatError(err)}`,
-      };
-    }
-
-    const resultParts = [];
-    if (validationText) resultParts.push(validationText);
-    if (assertionOutcome?.hasAssertion) {
-      resultParts.push(
-        `Assertion (${selectedWorkflowContextName}): ${assertionOutcome.passed ? 'PASS' : 'FAIL'}`,
-        assertionOutcome.message
-      );
-    }
-    resultParts.push(
-      `Execution time: ${data.executionTimeMs} ms`,
-      '---',
-      data.resultInspect ?? ''
-    );
-    const resultText = resultParts.join('\n');
-    setPre('result', resultText);
-
-    if (Array.isArray(data.logs) && data.logs.length > 0) {
-      setPre(
-        'console',
-        data.logs
-          .map((l) => `${l.level}: ${l.args.join(' ')}`)
-          .join('\n')
-      );
-    } else {
-      setPre('console', '(no console output)');
-    }
-    return;
-  }
-
-  // Default: run via server-side Node.js VM sandbox.
-  const resp = await fetch('/api/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, workflowContext, timeoutMs }),
+  const { runData, validationText, assertionOutcome } = await executeCase({
+    code,
+    workflowContext,
+    assertionText,
+    mode,
+    timeoutMs,
   });
 
-  const data = await resp.json();
-  if (!resp.ok || !data.ok) {
-    const errText = 'Error:\n' + formatError(data?.error);
+  if (!runData?.ok) {
+    const errText = 'Error:\n' + formatError(runData?.error);
     setPre('result', validationText ? `${validationText}\n\n${errText}` : errText);
-    if (data?.logs?.length) {
-      setPre('console', data.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
+    if (runData?.logs?.length) {
+      setPre('console', runData.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
     }
     return;
-  }
-
-  let assertionOutcome = null;
-  try {
-    assertionOutcome = evaluateAssertion({
-      assertionText,
-      resultValue: data.resultValue,
-      workflowContext,
-    });
-  } catch (err) {
-    assertionOutcome = {
-      hasAssertion: true,
-      passed: false,
-      message: `Assertion error: ${formatError(err)}`,
-    };
   }
 
   const resultParts = [];
@@ -490,20 +465,14 @@ async function run() {
     );
   }
   resultParts.push(
-    `Execution time: ${data.executionTimeMs} ms`,
+    `Execution time: ${runData.executionTimeMs} ms`,
     '---',
-    data.resultInspect ?? ''
+    runData.resultInspect ?? ''
   );
-  const resultText = resultParts.join('\n');
-  setPre('result', resultText);
+  setPre('result', resultParts.join('\n'));
 
-  if (Array.isArray(data.logs) && data.logs.length > 0) {
-    setPre(
-      'console',
-      data.logs
-        .map((l) => `${l.level}: ${l.args.join(' ')}`)
-        .join('\n')
-    );
+  if (Array.isArray(runData.logs) && runData.logs.length > 0) {
+    setPre('console', runData.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n'));
   } else {
     setPre('console', '(no console output)');
   }
@@ -845,9 +814,101 @@ if (genWorkflowContextBtn) {
   });
 }
 
+async function runAllTestCases() {
+  const code = getInlineCode();
+  const timeoutMs = Number($('timeoutMs').value);
+  const mode = $('mode').value;
+
+  setPre('result', '');
+  setPre('console', '');
+
+  // Keep selected case in sync before batch run.
+  if (selectedWorkflowContextName) {
+    try {
+      workflowContextCases[selectedWorkflowContextName] = {
+        workflowContext: getCurrentWorkflowContextObject(),
+        assertion: getAssertionText() || defaultAssertion,
+      };
+      persistWorkflowContextCases();
+    } catch (err) {
+      setPre('result', 'Invalid workflowContext JSON in selected case:\n' + formatError(err));
+      return;
+    }
+  }
+
+  const caseNames = Object.keys(workflowContextCases).sort((a, b) => a.localeCompare(b));
+  if (caseNames.length === 0) {
+    setPre('result', 'No test cases found.');
+    return;
+  }
+
+  const summaryLines = [];
+  const consoleSections = [];
+  let passCount = 0;
+  let failCount = 0;
+  let errorCount = 0;
+
+  for (const caseName of caseNames) {
+    const entry = normalizeCaseEntry(workflowContextCases[caseName]);
+    workflowContextCases[caseName] = entry;
+
+    const { runData, validationText, assertionOutcome } = await executeCase({
+      code,
+      workflowContext: entry.workflowContext,
+      assertionText: entry.assertion,
+      mode,
+      timeoutMs,
+    });
+
+    if (!runData?.ok) {
+      errorCount += 1;
+      summaryLines.push(`- ${caseName}: ERROR - ${formatError(runData?.error)}`);
+    } else if (assertionOutcome?.hasAssertion) {
+      if (assertionOutcome.passed) {
+        passCount += 1;
+        summaryLines.push(`- ${caseName}: PASS`);
+      } else {
+        failCount += 1;
+        summaryLines.push(`- ${caseName}: FAIL - ${assertionOutcome.message}`);
+      }
+    } else {
+      failCount += 1;
+      summaryLines.push(`- ${caseName}: FAIL - No assertion defined`);
+    }
+
+    if (validationText) {
+      summaryLines.push(`  validation: ${validationText.replace(/\n/g, ' | ')}`);
+    }
+
+    if (Array.isArray(runData?.logs) && runData.logs.length > 0) {
+      consoleSections.push(
+        `[${caseName}]`,
+        runData.logs.map((l) => `${l.level}: ${l.args.join(' ')}`).join('\n')
+      );
+    }
+  }
+
+  const total = caseNames.length;
+  const header = `Run All completed (${mode} mode): ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`;
+  setPre('result', [header, '---', ...summaryLines].join('\n'));
+
+  if (consoleSections.length > 0) {
+    setPre('console', consoleSections.join('\n'));
+  } else {
+    setPre('console', '(no console output)');
+  }
+}
+
 $('run').addEventListener('click', () => {
   run().catch((err) => setPre('result', 'Error:\n' + formatError(err)));
 });
+
+const runAllBtn = $('runAll');
+if (runAllBtn) {
+  runAllBtn.addEventListener('click', () => {
+    runAllTestCases().catch((err) => setPre('result', 'Error:\n' + formatError(err)));
+  });
+}
 
 async function runInBrowserWorker({ code, workflowContext, timeoutMs }) {
   // Web Worker lets us enforce timeouts (by terminating the worker).
