@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "stop": "node stop.js"
+    "stop": "node stop.js",
+    "test:assertion": "node --test tests/assertion.test.js"
   },
   "keywords": [],
   "author": "",
