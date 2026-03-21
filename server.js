@@ -39,6 +39,25 @@ function safeInspect(value) {
   }
 }
 
+function toJsonSafeValue(value) {
+  const seen = new WeakSet();
+  try {
+    const json = JSON.stringify(value, (key, v) => {
+      if (typeof v === 'bigint') return `${v.toString()}n`;
+      if (typeof v === 'function') return '[Function]';
+      if (typeof v === 'symbol') return '[Symbol]';
+      if (typeof v === 'object' && v !== null) {
+        if (seen.has(v)) return '[Circular]';
+        seen.add(v);
+      }
+      return v;
+    });
+    return json === undefined ? null : JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 function runInlineCode({ code, workflowContext, timeoutMs }) {
   const logs = [];
   const sandboxConsole = {
@@ -80,6 +99,7 @@ function runInlineCode({ code, workflowContext, timeoutMs }) {
 
   return {
     resultInspect: safeInspect(result),
+    resultValue: toJsonSafeValue(result),
     executionTimeMs,
     logs: logs.map((l) => ({
       level: l.level,

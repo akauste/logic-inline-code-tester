@@ -14,6 +14,9 @@ Local web UI for testing the **Execute JavaScript Code** action used in Logic Ap
   - select one from the `Test case` dropdown
   - edit JSON in the editor
   - click `Update Selected` to persist, or `Save As` to create a new case
+- Each test case can include an assertion expression (paired with that test case).
+  - Assertion must evaluate to `true`
+  - Available variables in assertion: `result`, `workflowContext`
 - Shows:
   - returned `Result` (via `return ...`)
   - captured `console.log/info/warn/error`

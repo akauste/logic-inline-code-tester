@@ -29,6 +29,8 @@ const defaultWorkflowContext = `{
   }
 }`;
 
+const defaultAssertion = `Array.isArray(result) && result.length >= 1`;
+
 function setText(id, value) {
   $(id).value = value;
 }
@@ -49,8 +51,21 @@ function applyWorkflowContextJson(jsonText) {
   }
 }
 
+function getAssertionText() {
+  return assertionEditor ? assertionEditor.getValue() : $('assertion')?.value || '';
+}
+
+function applyAssertionText(text) {
+  if (assertionEditor) {
+    assertionEditor.setValue(text || '');
+  } else if ($('assertion')) {
+    $('assertion').value = text || '';
+  }
+}
+
 let codeEditor = null;
 let workflowContextEditor = null;
+let assertionEditor = null;
 
 const WORKFLOW_CONTEXT_STORAGE_KEY = 'logicInlineCodeTester.workflowContexts.v1';
 const DEFAULT_WORKFLOW_CONTEXT_NAME = 'default';
@@ -102,6 +117,48 @@ function loadWorkflowContextCasesFromStorage() {
   }
 }
 
+function normalizeCaseEntry(entry) {
+  // Backward compatibility: older storage kept plain workflowContext object.
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    return { workflowContext: {}, assertion: defaultAssertion };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(entry, 'workflowContext')) {
+    const workflowContext =
+      entry.workflowContext && typeof entry.workflowContext === 'object' && !Array.isArray(entry.workflowContext)
+        ? entry.workflowContext
+        : {};
+    const assertion = typeof entry.assertion === 'string' ? entry.assertion : defaultAssertion;
+    return { workflowContext, assertion };
+  }
+
+  return { workflowContext: entry, assertion: defaultAssertion };
+}
+
+function evaluateAssertion({ assertionText, resultValue, workflowContext }) {
+  const text = (assertionText || '').trim();
+  if (!text) {
+    return { hasAssertion: false, passed: null, message: 'No assertion defined for this test case.' };
+  }
+
+  const fn = new Function(
+    'result',
+    'workflowContext',
+    `"use strict"; return (${text});`
+  );
+  const value = fn(resultValue, workflowContext);
+
+  if (value === true) {
+    return { hasAssertion: true, passed: true, message: 'Assertion passed.' };
+  }
+
+  return {
+    hasAssertion: true,
+    passed: false,
+    message: `Assertion failed (expected true, got ${String(value)}).`,
+  };
+}
+
 function initWorkflowContextTestCasesUI() {
   const fromStorage = loadWorkflowContextCasesFromStorage();
   if (fromStorage) {
@@ -110,9 +167,19 @@ function initWorkflowContextTestCasesUI() {
   } else {
     // Seed with the default template.
     try {
-      workflowContextCases = { [DEFAULT_WORKFLOW_CONTEXT_NAME]: JSON.parse(defaultWorkflowContext) };
+      workflowContextCases = {
+        [DEFAULT_WORKFLOW_CONTEXT_NAME]: {
+          workflowContext: JSON.parse(defaultWorkflowContext),
+          assertion: defaultAssertion,
+        },
+      };
     } catch {
-      workflowContextCases = { [DEFAULT_WORKFLOW_CONTEXT_NAME]: {} };
+      workflowContextCases = {
+        [DEFAULT_WORKFLOW_CONTEXT_NAME]: {
+          workflowContext: {},
+          assertion: defaultAssertion,
+        },
+      };
     }
     selectedWorkflowContextName = DEFAULT_WORKFLOW_CONTEXT_NAME;
   }
@@ -142,9 +209,11 @@ function initWorkflowContextTestCasesUI() {
   }
 
   const setEditorToCase = (name) => {
-    const obj = workflowContextCases[name];
-    const pretty = JSON.stringify(obj ?? {}, null, 2);
+    const entry = normalizeCaseEntry(workflowContextCases[name]);
+    workflowContextCases[name] = entry;
+    const pretty = JSON.stringify(entry.workflowContext ?? {}, null, 2);
     applyWorkflowContextJson(pretty);
+    applyAssertionText(entry.assertion || defaultAssertion);
     selectedWorkflowContextName = name;
   };
 
@@ -171,7 +240,10 @@ function initWorkflowContextTestCasesUI() {
 
       try {
         const obj = getCurrentWorkflowContextObject();
-        workflowContextCases[name] = obj;
+        workflowContextCases[name] = {
+          workflowContext: obj,
+          assertion: getAssertionText() || defaultAssertion,
+        };
         selectedWorkflowContextName = name;
         persistWorkflowContextCases();
         newNameInput.value = '';
@@ -194,7 +266,10 @@ function initWorkflowContextTestCasesUI() {
 
       try {
         const obj = getCurrentWorkflowContextObject();
-        workflowContextCases[selectedWorkflowContextName] = obj;
+        workflowContextCases[selectedWorkflowContextName] = {
+          workflowContext: obj,
+          assertion: getAssertionText() || defaultAssertion,
+        };
         persistWorkflowContextCases();
         setPre('result', `Updated: ${selectedWorkflowContextName}`);
       } catch (err) {
@@ -219,7 +294,10 @@ function initWorkflowContextTestCasesUI() {
       const remaining = Object.keys(workflowContextCases);
 
       if (remaining.length === 0) {
-        workflowContextCases[DEFAULT_WORKFLOW_CONTEXT_NAME] = {};
+        workflowContextCases[DEFAULT_WORKFLOW_CONTEXT_NAME] = {
+          workflowContext: {},
+          assertion: defaultAssertion,
+        };
         selectedWorkflowContextName = DEFAULT_WORKFLOW_CONTEXT_NAME;
       } else {
         selectedWorkflowContextName = remaining.sort((a, b) => a.localeCompare(b))[0];
@@ -239,6 +317,7 @@ function initWorkflowContextTestCasesUI() {
 
 async function run() {
   const code = getInlineCode();
+  const assertionText = getAssertionText();
   setPre('result', '');
   setPre('console', '');
 
@@ -326,8 +405,29 @@ async function run() {
       return;
     }
 
+    let assertionOutcome = null;
+    try {
+      assertionOutcome = evaluateAssertion({
+        assertionText,
+        resultValue: data.resultValue,
+        workflowContext,
+      });
+    } catch (err) {
+      assertionOutcome = {
+        hasAssertion: true,
+        passed: false,
+        message: `Assertion error: ${formatError(err)}`,
+      };
+    }
+
     const resultParts = [];
     if (validationText) resultParts.push(validationText);
+    if (assertionOutcome?.hasAssertion) {
+      resultParts.push(
+        `Assertion (${selectedWorkflowContextName}): ${assertionOutcome.passed ? 'PASS' : 'FAIL'}`,
+        assertionOutcome.message
+      );
+    }
     resultParts.push(
       `Execution time: ${data.executionTimeMs} ms`,
       '---',
@@ -366,8 +466,29 @@ async function run() {
     return;
   }
 
+  let assertionOutcome = null;
+  try {
+    assertionOutcome = evaluateAssertion({
+      assertionText,
+      resultValue: data.resultValue,
+      workflowContext,
+    });
+  } catch (err) {
+    assertionOutcome = {
+      hasAssertion: true,
+      passed: false,
+      message: `Assertion error: ${formatError(err)}`,
+    };
+  }
+
   const resultParts = [];
   if (validationText) resultParts.push(validationText);
+  if (assertionOutcome?.hasAssertion) {
+    resultParts.push(
+      `Assertion (${selectedWorkflowContextName}): ${assertionOutcome.passed ? 'PASS' : 'FAIL'}`,
+      assertionOutcome.message
+    );
+  }
   resultParts.push(
     `Execution time: ${data.executionTimeMs} ms`,
     '---',
@@ -430,7 +551,25 @@ function initWorkflowContextEditor() {
   workflowContextEditor.setValue(defaultWorkflowContext);
 }
 
+function initAssertionEditor() {
+  const textarea = $('assertion');
+  if (!textarea) return;
+  if (typeof window.CodeMirror === 'undefined') return;
+
+  assertionEditor = window.CodeMirror.fromTextArea(textarea, {
+    mode: 'javascript',
+    theme: 'material-darker',
+    lineNumbers: false,
+    lineWrapping: true,
+    indentUnit: 2,
+    tabSize: 2,
+  });
+
+  assertionEditor.setValue(defaultAssertion);
+}
+
 initWorkflowContextEditor();
+initAssertionEditor();
 initWorkflowContextTestCasesUI();
 
 function extractWorkflowContextPathsFromCode(codeText) {
@@ -678,7 +817,11 @@ if (genWorkflowContextBtn) {
 
       const pretty = JSON.stringify(template, null, 2);
       applyWorkflowContextJson(pretty);
-      workflowContextCases[selectedWorkflowContextName] = template;
+      const existing = normalizeCaseEntry(workflowContextCases[selectedWorkflowContextName]);
+      workflowContextCases[selectedWorkflowContextName] = {
+        workflowContext: template,
+        assertion: existing.assertion || getAssertionText() || defaultAssertion,
+      };
       persistWorkflowContextCases();
       setPre(
         'result',
@@ -754,6 +897,15 @@ async function runInBrowserWorker({ code, workflowContext, timeoutMs }) {
       return json;
     }
 
+    function toJsonSafeValue(value) {
+      try {
+        const json = stringifySafe(value, 0);
+        return json == null ? null : JSON.parse(json);
+      } catch {
+        return null;
+      }
+    }
+
     self.onmessage = (e) => {
       const { code, workflowContext } = e.data || {};
       const logs = [];
@@ -775,6 +927,7 @@ async function runInBrowserWorker({ code, workflowContext, timeoutMs }) {
         self.postMessage({
           ok: true,
           resultInspect: inspectValue(result),
+          resultValue: toJsonSafeValue(result),
           executionTimeMs,
           logs
         });

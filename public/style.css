@@ -98,6 +98,14 @@ textarea {
   line-height: 1.4;
 }
 
+#workflowContext + .CodeMirror {
+  height: 260px;
+}
+
+#assertion + .CodeMirror {
+  height: 110px;
+}
+
 .actions {
   display: flex;
   align-items: end;
@@ -149,6 +157,10 @@ button:hover {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.section-title {
+  margin-top: 12px;
 }
 
 .context-manager {
