@@ -35,6 +35,7 @@ export class TestCaseManager {
     this.cases = cases;
     this.selectedCase = selectedCase;
     this.render();
+    this.bindEvents();
   }
 
   /**
