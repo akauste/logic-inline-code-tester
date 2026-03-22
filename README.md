@@ -43,10 +43,14 @@ Output folder: **`dist/`** (copy of `public/` plus `staticwebapp.config.json`).
 
 ### GitHub Actions
 
-Use the Azure Static Web Apps workflow template and set:
+This repo includes `.github/workflows/azure-static-web-apps.yml` as a starting point:
 
-- Build command: `npm run build`
-- App / output: use **`dist`** as the folder to deploy (per your repo layout).
+1. In Azure Portal → your Static Web App → **Manage deployment token** → add it as repo secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
+2. Push to `main` to deploy.
+
+The workflow runs `npm ci && npm run build` at the repository root and deploys the **`dist/`** folder (`skip_app_build: true`, `app_location: dist`).
+
+If this project lives in a **subfolder** of your Git repo, add `defaults.run.working-directory` to that folder for the install/build steps, or move the workflow accordingly.
 
 ## Tests
 
