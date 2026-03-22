@@ -44,19 +44,17 @@ export class TestCaseManager {
     const caseNames = Object.keys(this.cases).sort((a, b) => a.localeCompare(b));
 
     this.container.innerHTML = `
-      <div class="context-manager">
-        <div class="context-header">
-          <span class="context-label">Test Case</span>
-          <select id="contextSelect">
-            ${caseNames.map(name => `<option value="${name}" ${name === this.selectedCase ? 'selected' : ''}>${name}</option>`).join('')}
-          </select>
-        </div>
-        <div class="context-toolbar">
-          <div class="context-actions">
-            <button id="addTestCase" type="button" class="btn-sm">+ Add</button>
-            <button id="updateSelectedContext" type="button" class="btn-sm">Update</button>
-            <button id="deleteSelectedContext" type="button" class="btn-sm danger">Delete</button>
-          </div>
+      <div class="context-header">
+        <span class="context-label">Test Case</span>
+        <select id="contextSelect">
+          ${caseNames.map(name => `<option value="${name}" ${name === this.selectedCase ? 'selected' : ''}>${name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="context-toolbar">
+        <div class="context-actions">
+          <button id="addTestCase" type="button" class="btn-sm">+ Add</button>
+          <button id="updateSelectedContext" type="button" class="btn-sm">Update</button>
+          <button id="deleteSelectedContext" type="button" class="btn-sm danger">Delete</button>
         </div>
       </div>
     `;

@@ -185,6 +185,16 @@ export class App {
     $('runAll')?.addEventListener('click', () => {
       this.runAll().catch(err => this.handleError(err));
     });
+
+    // Import from Logic App button
+    $('importFromLogicApp')?.addEventListener('click', () => {
+      this.importFromLogicApp();
+    });
+
+    // Run Tests button (header)
+    $('runTests')?.addEventListener('click', () => {
+      this.runAll().catch(err => this.handleError(err));
+    });
   }
 
   /**
@@ -504,6 +514,36 @@ export class App {
     const header = `Run All completed: ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`;
 
     this.resultDisplay.showResult([{ kind: headerKind, text: header }, '---', ...summaryLines]);
+
+    // Update test status display
+    this.updateTestStatus(passCount, failCount, errorCount, total);
+  }
+
+  /**
+   * Update test status display in header
+   * @param {number} passCount - Number of passed tests
+   * @param {number} failCount - Number of failed tests
+   * @param {number} errorCount - Number of error tests
+   * @param {number} total - Total number of tests
+   */
+  updateTestStatus(passCount, failCount, errorCount, total) {
+    const testStatusEl = $('testStatus');
+    if (!testStatusEl) return;
+
+    const allPassed = failCount === 0 && errorCount === 0;
+
+    testStatusEl.innerHTML = `
+      <span class="test-status-icon ${allPassed ? 'pass' : 'fail'}">
+        ${allPassed ? '✅' : '❌'}
+      </span>
+      <span class="test-status-text">
+        ${passCount}/${total} passed
+        ${failCount > 0 ? `, ${failCount} failed` : ''}
+        ${errorCount > 0 ? `, ${errorCount} errors` : ''}
+      </span>
+    `;
+
+    testStatusEl.className = `test-status ${allPassed ? 'pass' : 'fail'}`;
   }
 
   /**
@@ -545,11 +585,43 @@ export class App {
   }
 
   /**
-   * Handle application errors
-   * @param {Error} err - Error to handle
+   * Import code from Logic App JSON
    */
-  handleError(err) {
-    setPre('result', 'Error:\n' + this.formatError(err));
+  importFromLogicApp() {
+    const logicAppJson = prompt('Paste your Logic App JSON definition:');
+    if (!logicAppJson) return;
+
+    try {
+      const logicApp = JSON.parse(logicAppJson);
+      const code = this.extractJavaScriptCode(logicApp);
+
+      if (code) {
+        this.codeEditor.setValue(code);
+        setPre('result', 'Successfully imported JavaScript code from Logic App.');
+      } else {
+        setPre('result', 'No JavaScript code found in the Logic App definition. Make sure it contains an "Execute JavaScript Code" action.');
+      }
+    } catch (err) {
+      setPre('result', 'Invalid Logic App JSON:\n' + this.formatError(err));
+    }
+  }
+
+  /**
+   * Extract JavaScript code from Logic App definition
+   * @param {object} logicApp - Logic App definition
+   * @returns {string|null} Extracted JavaScript code or null
+   */
+  extractJavaScriptCode(logicApp) {
+    if (!logicApp?.definition?.actions) return null;
+
+    // Look for Execute JavaScript Code actions
+    for (const [actionName, action] of Object.entries(logicApp.definition.actions)) {
+      if (action.type === 'ExecuteJavaScriptCode' && action.inputs?.code) {
+        return action.inputs.code;
+      }
+    }
+
+    return null;
   }
 
   /**

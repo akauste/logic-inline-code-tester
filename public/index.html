@@ -14,12 +14,28 @@
   <body>
     <div class="container">
       <header>
-        <h1>Inline JS Code Tester (Logic Apps Standard)</h1>
-        <p class="sub">
-          Paste your <code>Execute JavaScript Code</code> snippet and a mocked <code>workflowContext</code>.
-          Runs in your browser (Web Worker). No server required—deploy as a static site (e.g. Azure Static Web Apps).
-        </p>
+        <h1>Inline JS Code Tester for Logic Apps Standard</h1>
+        <div class="header-actions">
+          <!--
+            <button id="importFromLogicApp" type="button" class="btn-sm">Paste Logic App</button>
+          -->
+          <!-- Future features -->
+          <!--
+            <button id="newTestCase" type="button" class="btn-sm">New Test Case</button>
+            <button id="importTestCases" type="button" class="btn-sm">Import Test Cases</button>
+            <button id="exportTestCases" type="button" class="btn-sm">Export Test Cases</button>
+          -->
+          <button id="runTests" type="button" class="btn-sm primary">Run Tests</button>
+          <div id="testStatus" class="test-status">
+          </div>
+        </div>
       </header>
+
+      <p class="sub intro">
+        <!-- TODO: Close intro, move close button to the right -->
+        <button id="closeIntro" type="button" class="btn-sm pull-right">✕</button>
+        Runs in your browser (Web Worker). No data leaves your machine. Use it to quickly iterate on your code and test against different contexts without needing to deploy your Logic App.
+      </p>
 
       <section class="grid">
         <div class="panel">
