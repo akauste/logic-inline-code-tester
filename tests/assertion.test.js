@@ -1,11 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
-
-const PORT = 3111;
-const BASE_URL = `http://127.0.0.1:${PORT}`;
-
-let serverProc = null;
+const { runInlineSnippet, toJsonSafeValue } = require('./runInlineSnippet.js');
 
 function evaluateAssertion({ assertionText, resultValue, workflowContext }) {
   const text = (assertionText || '').trim();
@@ -27,37 +22,7 @@ function evaluateAssertion({ assertionText, resultValue, workflowContext }) {
   };
 }
 
-async function waitForServerReady(timeoutMs = 8000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const resp = await fetch(`${BASE_URL}/`);
-      if (resp.ok) return;
-    } catch {
-      // Keep polling until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 120));
-  }
-  throw new Error('Server did not become ready in time.');
-}
-
-test.before(async () => {
-  serverProc = spawn('node', ['server.js'], {
-    env: { ...process.env, PORT: String(PORT) },
-    stdio: 'pipe',
-    cwd: process.cwd(),
-  });
-
-  await waitForServerReady();
-});
-
-test.after(() => {
-  if (serverProc && !serverProc.killed) {
-    serverProc.kill('SIGTERM');
-  }
-});
-
-test('assertion passes when condition is true', async () => {
+test('assertion passes when condition is true', () => {
   const workflowContext = {
     trigger: {
       outputs: {
@@ -74,31 +39,20 @@ test('assertion passes when condition is true', async () => {
     return matches;
   `;
 
-  const resp = await fetch(`${BASE_URL}/api/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      code,
-      workflowContext,
-      timeoutMs: 1000,
-    }),
-  });
-  assert.equal(resp.ok, true);
-
-  const payload = await resp.json();
-  assert.equal(payload.ok, true);
-  assert.deepEqual(payload.resultValue, ['test@example.com']);
+  const rawResult = runInlineSnippet(code, workflowContext);
+  const resultValue = toJsonSafeValue(rawResult);
+  assert.deepEqual(resultValue, ['test@example.com']);
 
   const assertion = evaluateAssertion({
     assertionText: 'Array.isArray(result) && result.length === 1',
-    resultValue: payload.resultValue,
+    resultValue,
     workflowContext,
   });
   assert.equal(assertion.hasAssertion, true);
   assert.equal(assertion.passed, true);
 });
 
-test('assertion fails when condition is false', async () => {
+test('assertion fails when condition is false', () => {
   const workflowContext = {
     trigger: {
       outputs: {
@@ -115,27 +69,15 @@ test('assertion fails when condition is false', async () => {
     return matches;
   `;
 
-  const resp = await fetch(`${BASE_URL}/api/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      code,
-      workflowContext,
-      timeoutMs: 1000,
-    }),
-  });
-  assert.equal(resp.ok, true);
-
-  const payload = await resp.json();
-  assert.equal(payload.ok, true);
-  assert.deepEqual(payload.resultValue, []);
+  const rawResult = runInlineSnippet(code, workflowContext);
+  const resultValue = toJsonSafeValue(rawResult);
+  assert.deepEqual(resultValue, []);
 
   const assertion = evaluateAssertion({
     assertionText: 'Array.isArray(result) && result.length > 0',
-    resultValue: payload.resultValue,
+    resultValue,
     workflowContext,
   });
   assert.equal(assertion.hasAssertion, true);
   assert.equal(assertion.passed, false);
 });
-

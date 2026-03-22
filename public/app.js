@@ -244,27 +244,11 @@ function buildValidationText(code, workflowContext) {
   return validationText;
 }
 
-async function executeCase({ code, workflowContext, assertionText, mode, timeoutMs }) {
+async function executeCase({ code, workflowContext, assertionText, timeoutMs }) {
   const validationText = buildValidationText(code, workflowContext);
 
-  let runData;
-  if (mode === 'browser') {
-    runData = await runInBrowserWorker({ code, workflowContext, timeoutMs });
-  } else {
-    const resp = await fetch('/api/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, workflowContext, timeoutMs }),
-    });
-    runData = await resp.json();
-    if (!resp.ok) {
-      runData = {
-        ok: false,
-        error: runData?.error || { message: `HTTP ${resp.status}` },
-        logs: runData?.logs || [],
-      };
-    }
-  }
+  // Static / browser-only: execution runs in a Web Worker (no backend).
+  const runData = await runInBrowserWorker({ code, workflowContext, timeoutMs });
 
   let assertionOutcome = null;
   if (runData?.ok) {
@@ -461,12 +445,10 @@ async function run() {
   }
 
   const timeoutMs = Number($('timeoutMs').value);
-  const mode = $('mode').value;
   const { runData, validationText, assertionOutcome } = await executeCase({
     code,
     workflowContext,
     assertionText,
-    mode,
     timeoutMs,
   });
 
@@ -851,7 +833,6 @@ if (genWorkflowContextBtn) {
 async function runAllTestCases() {
   const code = getInlineCode();
   const timeoutMs = Number($('timeoutMs').value);
-  const mode = $('mode').value;
 
   setPre('result', '');
   setPre('console', '');
@@ -890,7 +871,6 @@ async function runAllTestCases() {
       code,
       workflowContext: entry.workflowContext,
       assertionText: entry.assertion,
-      mode,
       timeoutMs,
     });
 
@@ -925,7 +905,7 @@ async function runAllTestCases() {
   const total = caseNames.length;
   const headerKind = failCount === 0 && errorCount === 0 ? 'pass' : 'fail';
   const headerSymbol = headerKind === 'pass' ? '✅' : '❌';
-  const header = `${headerSymbol} Run All completed (${mode} mode): ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`;
+  const header = `${headerSymbol} Run All completed: ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`;
   setResultRich([{ kind: headerKind, text: header }, '---', ...summaryLines]);
 
   if (consoleSections.length > 0) {

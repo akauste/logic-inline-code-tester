@@ -1,18 +1,17 @@
 {
   "name": "logic-inline-code-tester",
   "version": "1.0.0",
-  "main": "index.js",
+  "private": true,
+  "description": "Browser-only Logic Apps inline code tester (static site; Azure SWA friendly)",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "stop": "node stop.js",
+    "build": "node scripts/build-static.js",
+    "preview": "npx --yes serve dist -p 3000",
+    "test": "node --test tests/assertion.test.js",
     "test:assertion": "node --test tests/assertion.test.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "express": "^5.2.1"
-  }
+  "devDependencies": {},
+  "dependencies": {}
 }

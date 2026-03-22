@@ -1,55 +1,62 @@
 # Logic Apps Standard Inline Code Tester
 
-Local web UI for testing the **Execute JavaScript Code** action used in Logic Apps Standard.
+**Browser-only static web app** for testing the **Execute JavaScript Code** action used in Logic Apps Standard. Code runs in a **Web Worker** in your browser—no backend required.
 
 ## What it does
 
-- Lets you paste your inline code snippet.
-- Lets you paste a mocked `workflowContext` JSON object (with `trigger`, `actions`, `workflow`).
-- Runs the snippet locally in either:
-  - Node.js (sandboxed `vm` on the server), or
-  - the browser (Web Worker).
-- In the UI, you can generate a `workflowContext` JSON skeleton from your inline code (button: `Generate from Inline Code`).
-- You can store multiple named `workflowContext` test cases in the UI:
-  - select one from the `Test case` dropdown
-  - edit JSON in the editor
-  - click `Update Selected` to persist, or `Save As` to create a new case
-- Each test case can include an assertion expression (paired with that test case).
-  - Assertion must evaluate to `true`
-  - Available variables in assertion: `result`, `workflowContext`
-- You can run all saved test cases at once with `Run All Test Cases` in the UI.
-- Shows:
-  - returned `Result` (via `return ...`)
-  - captured `console.log/info/warn/error`
+- Paste your inline code snippet and a mocked `workflowContext` JSON (`trigger`, `actions`, `workflow`).
+- Generate a `workflowContext` skeleton from your code (**Generate from Inline Code**).
+- Save multiple **named test cases** (context + paired **assertion**).
+- **Run** or **Run All Test Cases** with pass/fail in the UI.
+- Assertions use `result` and `workflowContext`; must evaluate to `true`.
 
-## Run locally
+## Develop locally
+
+Edit files under `public/`, then:
 
 ```powershell
 cd "logic-inline-code-tester"
-npm start
+npm run build
+npm run preview
 ```
 
-Open: `http://localhost:3000`
+Open the URL printed by `serve` (default `http://localhost:3000`).
 
-To stop the server:
+## Build for production (Azure Static Web Apps)
+
+1. Produce the static site:
 
 ```powershell
-npm run stop
+npm run build
 ```
 
-## Request format (for `/api/run`)
+Output folder: **`dist/`** (copy of `public/` plus `staticwebapp.config.json`).
 
-```json
-{
-  "code": "/* your JS snippet */",
-  "workflowContext": { "trigger": {}, "actions": {}, "workflow": {} },
-  "timeoutMs": 1000
-}
+2. In the [Azure Portal](https://portal.azure.com), create a **Static Web App** (Free tier).
+
+3. Connect your Git repo **or** deploy manually:
+   - **App location**: `dist` (if the repo root is this project), or path to `dist` in a monorepo.
+   - **API**: none.
+   - For a **prebuilt** static site, point the SWA app at the folder that contains `index.html` and `staticwebapp.config.json`.
+
+4. `staticwebapp.config.json` includes a `navigationFallback` so client routes fall back to `index.html` (single-page app).
+
+### GitHub Actions
+
+Use the Azure Static Web Apps workflow template and set:
+
+- Build command: `npm run build`
+- App / output: use **`dist`** as the folder to deploy (per your repo layout).
+
+## Tests
+
+```powershell
+npm test
 ```
+
+Runs Node tests that mirror the browser worker execution model (no HTTP server).
 
 ## Notes / limitations
 
-- The runner is designed for local prototyping; it is not a perfect emulation of the Azure Logic Apps execution environment.
-- Node packages, `require()`, `process`, and timer globals are intentionally blocked in the sandbox.
-- In-browser mode runs in a Web Worker, so it can still be terminated on timeout, but it won't perfectly match Node.js/Logic Apps runtime quirks.
-
+- This is for **local prototyping**; behavior may differ slightly from Azure Logic Apps’ hosted runtime.
+- Code runs in the browser; `require`, Node APIs, and file system are not available (same idea as inline code in the portal).
