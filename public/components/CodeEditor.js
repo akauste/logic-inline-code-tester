@@ -24,42 +24,87 @@ export class CodeEditor {
   init(onChange = null) {
     this.onChange = onChange;
 
-    // Create textarea if it doesn't exist
-    let textarea = this.container.querySelector('textarea');
+    // Handle both container and textarea inputs
+    let textarea = this.container.tagName === 'TEXTAREA' 
+      ? this.container 
+      : this.container.querySelector('textarea');
+    
     if (!textarea) {
       textarea = document.createElement('textarea');
       this.container.appendChild(textarea);
     }
 
-    // Initialize CodeMirror
-    if (typeof window.CodeMirror !== 'undefined') {
-      this.editor = window.CodeMirror.fromTextArea(textarea, {
-        mode: this.options.mode,
-        theme: this.options.theme,
-        lineNumbers: this.options.lineNumbers,
-        tabSize: this.options.tabSize,
+    // Initialize CodeMirror - with retry for cases where CodeMirror might not be fully loaded
+    const initCodeMirror = () => {
+      if (typeof window.CodeMirror === 'undefined') {
+        // Retry after a short delay if CodeMirror is not yet available
+        setTimeout(initCodeMirror, 100);
+        return;
+      }
+
+      try {
+        // Normalize mode names for better compatibility
+        let mode = this.options.mode;
+        if (mode === 'json') {
+          mode = 'application/json';
+        }
+
+        this.editor = window.CodeMirror.fromTextArea(textarea, {
+          mode: mode,
+          theme: this.options.theme,
+          lineNumbers: this.options.lineNumbers,
+          tabSize: this.options.tabSize,
+          indentUnit: 2,
+          indentWithTabs: false,
+          lineWrapping: true,
+          autoCloseBrackets: true,
+          matchBrackets: true,
+        });
+
+        // Set height
+        this.editor.setSize(null, this.options.height);
+
+        // Force syntax highlighting refresh
+        setTimeout(() => {
+          this.editor.refresh();
+        }, 0);
+
+        // Bind change event
+        if (this.onChange) {
+          this.editor.on('change', () => {
+            this.onChange(this.getValue());
+          });
+        }
+      } catch (err) {
+        // If CodeMirror initialization fails, fall back to plain textarea
+        console.warn('CodeMirror initialization failed for mode', this.options.mode, err);
+        this.setupPlainTextarea(textarea);
+      }
+    };
+
+    // Start initialization
+    initCodeMirror();
+
+    // Also set up plain textarea as fallback
+    if (typeof window.CodeMirror === 'undefined') {
+      this.setupPlainTextarea(textarea);
+    }
+  }
+
+  /**
+   * Set up plain textarea fallback
+   * @param {HTMLTextAreaElement} textarea - Textarea element
+   */
+  setupPlainTextarea(textarea) {
+    textarea.style.width = '100%';
+    textarea.style.minHeight = this.options.height + 'px';
+    textarea.style.resize = 'vertical';
+    textarea.style.fontFamily = 'monospace';
+
+    if (this.onChange) {
+      textarea.addEventListener('input', () => {
+        this.onChange(this.getValue());
       });
-
-      // Set height
-      this.editor.setSize(null, this.options.height);
-
-      // Bind change event
-      if (this.onChange) {
-        this.editor.on('change', () => {
-          this.onChange(this.getValue());
-        });
-      }
-    } else {
-      // Fallback to plain textarea
-      textarea.style.width = '100%';
-      textarea.style.minHeight = this.options.height + 'px';
-      textarea.style.resize = 'vertical';
-
-      if (this.onChange) {
-        textarea.addEventListener('input', () => {
-          this.onChange(this.getValue());
-        });
-      }
     }
   }
 

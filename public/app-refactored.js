@@ -18,19 +18,43 @@ import { Modal } from './components/Modal.js';
 const DEFAULT_CODE = `// Example: extract email addresses from the trigger body
 // Tip: reference data via workflowContext, matching Logic Apps Standard.
 const text =
-  workflowContext?.trigger?.outputs?.body?.body ??
+  workflowContext?.trigger?.outputs?.body?.Body ??
   "";
 
-const myRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig;
+const myRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/ig;
 const matches = (text.match(myRegex) || []);
 
 // Returning an array becomes the action "Result" token.
 return matches;`;
 
+const DEFAULT_WORKFLOW_CONTEXT = `{
+  "actions": {},
+  "trigger": {
+    "name": "When_a_new_email_arrives",
+    "outputs": {
+      "headers": {},
+      "body": {
+        "Body": "Hello World. Contact me at test@example.com and user2@domain.org"
+      }
+    }
+  },
+  "workflow": {
+    "name": "My_logic_app"
+  }
+}`;
+
 const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
 
 // Utility functions
-const $ = (id) => document.getElementById(id);
+const $ = (selector) => {
+  if (selector.startsWith('#')) {
+    return document.getElementById(selector.slice(1));
+  }
+  if (selector.startsWith('.')) {
+    return document.querySelector(selector);
+  }
+  return document.getElementById(selector);
+};
 
 function setPre(id, text) {
   const el = $(id);
@@ -64,9 +88,29 @@ export class App {
    * Initialize the application
    */
   async init() {
+    // Wait for CodeMirror to be available
+    await this.waitForCodeMirror();
+    
     this.initComponents();
     this.loadState();
     this.bindEvents();
+  }
+
+  /**
+   * Wait for CodeMirror to be fully loaded
+   * @returns {Promise<void>}
+   */
+  async waitForCodeMirror() {
+    return new Promise((resolve) => {
+      const checkCodeMirror = () => {
+        if (typeof window.CodeMirror !== 'undefined') {
+          resolve();
+        } else {
+          setTimeout(checkCodeMirror, 50);
+        }
+      };
+      checkCodeMirror();
+    });
   }
 
   /**
@@ -74,13 +118,25 @@ export class App {
    */
   initComponents() {
     // Initialize editors
-    this.codeEditor = new CodeEditor($('code'), { mode: 'javascript' });
+    const codeTextarea = $('code');
+    if (codeTextarea) {
+      codeTextarea.value = DEFAULT_CODE;
+    }
+    this.codeEditor = new CodeEditor(codeTextarea, { mode: 'javascript' });
     this.codeEditor.init();
 
-    this.workflowEditor = new CodeEditor($('workflowContext'), { mode: 'json' });
+    const workflowTextarea = $('workflowContext');
+    if (workflowTextarea) {
+      workflowTextarea.value = DEFAULT_WORKFLOW_CONTEXT;
+    }
+    this.workflowEditor = new CodeEditor(workflowTextarea, { mode: 'json' });
     this.workflowEditor.init();
 
-    this.assertionEditor = new CodeEditor($('assertion'), { mode: 'javascript', height: 110 });
+    const assertionTextarea = $('assertion');
+    if (assertionTextarea) {
+      assertionTextarea.value = DEFAULT_ASSERTION;
+    }
+    this.assertionEditor = new CodeEditor(assertionTextarea, { mode: 'javascript', height: 110 });
     this.assertionEditor.init();
 
     // Initialize result display

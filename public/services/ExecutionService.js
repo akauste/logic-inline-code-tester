@@ -90,6 +90,159 @@ export class ExecutionService {
     return name + msg + (err.stack ? `\n\n${err.stack}` : '');
   }
 
-  // ... rest of the execution logic (runInBrowserWorker, etc.)
-  // This would be moved from the original app.js
+  /**
+   * Execute code in a Web Worker (browser-only)
+   * @param {object} params - Execution parameters
+   * @returns {Promise<object>} Execution result
+   */
+  static async runInBrowserWorker({ code, workflowContext, timeoutMs }) {
+    // Web Worker lets us enforce timeouts (by terminating the worker).
+    const workerScript = `
+      "use strict";
+
+      const formatError = (err) => {
+        if (!err) return { name: "Error", message: "Unknown error" };
+        return {
+          name: err && err.name ? err.name : "Error",
+          message: err && err.message ? err.message : String(err),
+          stack: err && err.stack ? err.stack : undefined
+        };
+      };
+
+      function stringifySafe(value, space) {
+        const seen = new WeakSet();
+        const json = (() => {
+          try {
+            return JSON.stringify(value, (key, val) => {
+              if (typeof val === "bigint") return val.toString() + "n";
+              if (typeof val === "object" && val !== null) {
+                if (seen.has(val)) return "[Circular]";
+                seen.add(val);
+              }
+              if (typeof val === "function") return "[Function]";
+              return val;
+            }, space);
+          } catch (e) {
+            return null;
+          }
+        })();
+        if (json !== null) return json;
+        try {
+          return String(value);
+        } catch {
+          return "[Uninspectable]";
+        }
+      }
+
+      function inspectValue(value) {
+        if (typeof value === "string") return JSON.stringify(value);
+        if (value === undefined) return "undefined";
+        if (value === null) return "null";
+        if (typeof value === "number" || typeof value === "boolean") return String(value);
+        const json = stringifySafe(value, 2);
+        return json;
+      }
+
+      function toJsonSafeValue(value) {
+        try {
+          const json = stringifySafe(value, 0);
+          return json == null ? null : JSON.parse(json);
+        } catch {
+          return null;
+        }
+      }
+
+      self.onmessage = (e) => {
+        const { code, workflowContext } = e.data || {};
+        const logs = [];
+        const methods = ["log", "info", "warn", "error"];
+        const original = {};
+        for (const m of methods) {
+          original[m] = console[m];
+          console[m] = (...args) => {
+            logs.push({ level: m, args: args.map((a) => inspectValue(a)) });
+          };
+        }
+
+        const start = Date.now();
+        try {
+          const wrapped = '"use strict";\\n' + code + '\\n';
+          const fn = new Function("workflowContext", wrapped);
+          const result = fn(workflowContext);
+          const executionTimeMs = Date.now() - start;
+          self.postMessage({
+            ok: true,
+            resultInspect: inspectValue(result),
+            resultValue: toJsonSafeValue(result),
+            executionTimeMs,
+            logs
+          });
+        } catch (err) {
+          const executionTimeMs = Date.now() - start;
+          self.postMessage({
+            ok: false,
+            error: formatError(err),
+            executionTimeMs,
+            logs
+          });
+        }
+        // No restore needed since the worker is terminated by the main thread.
+      };
+    `;
+
+    const blob = new Blob([workerScript], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+    const worker = new Worker(url);
+
+    let timer = null;
+    try {
+      const data = await new Promise((resolve) => {
+        let done = false;
+        timer = setTimeout(() => {
+          if (done) return;
+          done = true;
+          worker.terminate();
+          URL.revokeObjectURL(url);
+          resolve({
+            ok: false,
+            error: { name: 'TimeoutError', message: `Timed out after ${timeoutMs} ms`, stack: undefined },
+            executionTimeMs: timeoutMs,
+            logs: [],
+          });
+        }, timeoutMs);
+
+        worker.onmessage = (event) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          const payload = event.data || {};
+          resolve(payload);
+          worker.terminate();
+          URL.revokeObjectURL(url);
+        };
+
+        worker.onerror = (err) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve({
+            ok: false,
+            error: { name: 'WorkerError', message: err?.message ? err.message : String(err), stack: err?.filename },
+            executionTimeMs: Date.now(),
+            logs: [],
+          });
+          worker.terminate();
+          URL.revokeObjectURL(url);
+        };
+
+        worker.postMessage({ code, workflowContext });
+      });
+
+      return data;
+    } finally {
+      try {
+        if (timer) clearTimeout(timer);
+      } catch {}
+    }
+  }
 }
