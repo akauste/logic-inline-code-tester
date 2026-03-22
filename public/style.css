@@ -146,6 +146,17 @@ button:hover {
   background: rgba(90, 166, 255, 0.22);
 }
 
+button.btn-sm {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+button.btn-sm:hover {
+  background: rgba(90, 166, 255, 0.25);
+}
+
 .hint {
   margin-top: 8px;
   color: var(--muted);
@@ -153,10 +164,7 @@ button:hover {
 }
 
 .panel-actions {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: none;
 }
 
 .section-title {
@@ -164,30 +172,80 @@ button:hover {
 }
 
 .context-manager {
-  margin-top: 10px;
+  background: rgba(90, 166, 255, 0.08);
+  border: 1px solid rgba(90, 166, 255, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.inline-row {
+.context-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.context-manager input[type='text'] {
+.context-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.context-header select {
   flex: 1;
-  min-width: 180px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: #0f1731;
+  min-width: 120px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(90, 166, 255, 0.5);
+  background: rgba(15, 23, 49, 0.8);
   color: var(--text);
   outline: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
   font-size: 12px;
+  cursor: pointer;
+}
+
+.context-header select:hover {
+  border-color: rgba(90, 166, 255, 0.8);
+}
+
+.context-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-input-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.context-input-group input {
+  flex: 1;
+  min-width: 140px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(90, 166, 255, 0.4);
+  background: rgba(15, 23, 49, 0.8);
+  color: var(--text);
+  outline: none;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
+  font-size: 12px;
+}
+
+.context-input-group input:focus {
+  border-color: rgba(90, 166, 255, 0.8);
+}
+
+.context-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 button.danger {

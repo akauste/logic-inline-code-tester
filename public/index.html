@@ -31,36 +31,33 @@
         </div>
 
         <div class="panel">
+          <div class="context-manager">
+            <div class="context-header">
+              <span class="context-label">Test Case</span>
+              <select id="contextSelect"></select>
+            </div>
+            <div class="context-toolbar">
+              <div class="context-input-group">
+                <input
+                  id="newContextName"
+                  type="text"
+                  placeholder="New test case name"
+                  autocomplete="off"
+                />
+                <button id="saveNewContext" type="button" class="btn-sm">Save As</button>
+              </div>
+              <div class="context-actions">
+                <button id="updateSelectedContext" type="button" class="btn-sm">Update</button>
+                <button id="deleteSelectedContext" type="button" class="btn-sm danger">Delete</button>
+                <button id="genWorkflowContext" type="button" class="btn-sm">Generate</button>
+              </div>
+            </div>
+          </div>
+
           <div class="panel-title">workflowContext JSON</div>
           <textarea id="workflowContext" spellcheck="false"></textarea>
           <div class="hint">
             Shape matches Logic Apps Standard: <code>{ actions, trigger, workflow }</code>.
-          </div>
-          <div class="context-manager">
-            <label class="field">
-              Test case
-              <select id="contextSelect"></select>
-            </label>
-
-            <div class="inline-row">
-              <input
-                id="newContextName"
-                type="text"
-                placeholder="New name"
-                autocomplete="off"
-              />
-              <button id="saveNewContext" type="button">Save As</button>
-            </div>
-
-            <div class="inline-row">
-              <button id="updateSelectedContext" type="button">Update Selected</button>
-              <button id="deleteSelectedContext" type="button" class="danger">Delete</button>
-            </div>
-          </div>
-          <div class="panel-actions">
-            <button id="genWorkflowContext" type="button">
-              Generate from Inline Code
-            </button>
           </div>
 
           <div class="panel-title section-title">Assertion (paired with selected test case)</div>
