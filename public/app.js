@@ -270,6 +270,15 @@ async function executeCase({ code, workflowContext, assertionText, timeoutMs }) 
   return { runData, validationText, assertionOutcome };
 }
 
+function setEditorToCase(name) {
+  const entry = normalizeCaseEntry(workflowContextCases[name]);
+  workflowContextCases[name] = entry;
+  const pretty = JSON.stringify(entry.workflowContext ?? {}, null, 2);
+  applyWorkflowContextJson(pretty);
+  applyAssertionText(entry.assertion || defaultAssertion);
+  selectedWorkflowContextName = name;
+}
+
 function initWorkflowContextTestCasesUI() {
   const fromStorage = loadWorkflowContextCasesFromStorage();
   if (fromStorage) {
@@ -319,15 +328,6 @@ function initWorkflowContextTestCasesUI() {
     }
   }
 
-  const setEditorToCase = (name) => {
-    const entry = normalizeCaseEntry(workflowContextCases[name]);
-    workflowContextCases[name] = entry;
-    const pretty = JSON.stringify(entry.workflowContext ?? {}, null, 2);
-    applyWorkflowContextJson(pretty);
-    applyAssertionText(entry.assertion || defaultAssertion);
-    selectedWorkflowContextName = name;
-  };
-
   if (!workflowContextUIBound && contextSelect) {
     contextSelect.addEventListener('change', () => {
       const name = contextSelect.value;
@@ -338,32 +338,9 @@ function initWorkflowContextTestCasesUI() {
     });
   }
 
+  // Modal-based test case creation - no longer used inline
   if (!workflowContextUIBound && saveNewBtn && newNameInput) {
-    saveNewBtn.addEventListener('click', () => {
-      setPre('result', '');
-      setPre('console', '');
-
-      const name = newNameInput.value.trim();
-      if (!name) {
-        setPre('result', 'Please enter a name for the new workflowContext test case.');
-        return;
-      }
-
-      try {
-        const obj = getCurrentWorkflowContextObject();
-        workflowContextCases[name] = {
-          workflowContext: obj,
-          assertion: getAssertionText() || defaultAssertion,
-        };
-        selectedWorkflowContextName = name;
-        persistWorkflowContextCases();
-        newNameInput.value = '';
-        setPre('result', `Saved workflowContext test case: ${name}`);
-        initWorkflowContextTestCasesUI();
-      } catch (err) {
-        setPre('result', 'Invalid workflowContext JSON:\n' + formatError(err));
-      }
-    });
+    // Event handlers moved to modal system
   }
 
   if (!workflowContextUIBound && updateSelectedBtn) {
@@ -782,52 +759,32 @@ function extractWorkflowContextPathsFromCode(codeText) {
   };
 }
 
-const genWorkflowContextBtn = $('genWorkflowContext');
-if (genWorkflowContextBtn) {
-  genWorkflowContextBtn.addEventListener('click', () => {
-    setPre('console', '');
-    setPre('result', '');
+// Generate workflow context logic - moved to modal system
+function generateWorkflowContextFromCode() {
+  try {
+    const codeText = getInlineCode();
+    const { template, uniquePaths, issues, skippedPaths } = extractWorkflowContextPathsFromCode(codeText);
 
-    try {
-      const codeText = getInlineCode();
-      const { template, uniquePaths, issues, skippedPaths } = extractWorkflowContextPathsFromCode(codeText);
-
-      if (!uniquePaths) {
-        setPre(
-          'result',
-          'No `workflowContext.*` property access found in the inline code snippet.'
-        );
-        return;
-      }
-
-      const pretty = JSON.stringify(template, null, 2);
-      applyWorkflowContextJson(pretty);
-      const existing = normalizeCaseEntry(workflowContextCases[selectedWorkflowContextName]);
-      workflowContextCases[selectedWorkflowContextName] = {
-        workflowContext: template,
-        assertion: existing.assertion || getAssertionText() || defaultAssertion,
+    if (!uniquePaths) {
+      return {
+        success: false,
+        message: 'No `workflowContext.*` property access found in the inline code snippet.',
       };
-      persistWorkflowContextCases();
-      setPre(
-        'result',
-        `Generated workflowContext template from ${uniquePaths} valid path(s). Skipped ${skippedPaths} structurally unsupported path(s).`
-      );
-
-      if (Array.isArray(issues) && issues.length > 0) {
-        setPre(
-          'console',
-          'Validation issues (code -> workflowContext shape):\n' +
-            issues
-              .slice(0, 30)
-              .map((it) => `- ${JSON.stringify(it.path)}: ${it.reason}`)
-              .join('\n') +
-            (issues.length > 30 ? `\n...and ${issues.length - 30} more` : '')
-        );
-      }
-    } catch (err) {
-      setPre('result', 'Failed to generate workflowContext template:\n' + formatError(err));
     }
-  });
+
+    return {
+      success: true,
+      template,
+      uniquePaths,
+      skippedPaths,
+      issues: issues || [],
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: 'Failed to generate workflowContext template:\n' + formatError(err),
+    };
+  }
 }
 
 async function runAllTestCases() {
@@ -925,6 +882,187 @@ if (runAllBtn) {
     runAllTestCases().catch((err) => setPre('result', 'Error:\n' + formatError(err)));
   });
 }
+
+// Modal dialog for adding new test cases
+let modalState = {
+  mode: 'generate', // 'generate' or 'duplicate'
+  generatedTemplate: null,
+};
+
+function showModal() {
+  $('addTestCaseModal').classList.add('active');
+  $('newTestCaseName').value = '';
+  $('newTestCaseName').focus();
+}
+
+function hideModal() {
+  const modal = $('addTestCaseModal');
+  if (modal) modal.classList.remove('active');
+  modalState.generatedTemplate = null;
+  modalState.mode = 'generate';
+  updateModalTabs();
+}
+
+function updateModalTabs() {
+  const tabs = document.querySelectorAll('.modal-tab');
+  const panels = document.querySelectorAll('.modal-panel');
+  
+  tabs.forEach(tab => {
+    tab.classList.remove('active');
+    if (tab.dataset.tab === modalState.mode) {
+      tab.classList.add('active');
+    }
+  });
+  
+  panels.forEach(panel => {
+    panel.classList.remove('active');
+    if (panel.id === (modalState.mode === 'generate' ? 'generatePanel' : 'duplicatePanel')) {
+      panel.classList.add('active');
+    }
+  });
+}
+
+function populateDuplicateSelect() {
+  const select = $('duplicateSelect');
+  if (!select) return;
+  
+  const names = Object.keys(workflowContextCases).sort((a, b) => a.localeCompare(b));
+  select.innerHTML = '<option value="">-- Select test case to duplicate --</option>';
+  
+  names.forEach(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
+  });
+}
+
+// Add test case button
+const addTestCaseBtn = $('addTestCase');
+if (addTestCaseBtn) {
+  addTestCaseBtn.addEventListener('click', () => {
+    populateDuplicateSelect();
+    updateModalTabs();
+    showModal();
+  });
+}
+
+// Modal tab switching
+document.querySelectorAll('.modal-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    modalState.mode = tab.dataset.tab;
+    updateModalTabs();
+    
+    // If switching to generate, clear any existing template
+    if (modalState.mode === 'generate') {
+      modalState.generatedTemplate = null;
+    }
+  });
+});
+
+// Generate button in modal
+const generateButton = $('generateButton');
+if (generateButton) {
+  generateButton.addEventListener('click', () => {
+    const result = generateWorkflowContextFromCode();
+    
+    if (!result.success) {
+      setPre('result', result.message);
+      return;
+    }
+    
+    modalState.generatedTemplate = result.template;
+    setPre(
+      'result',
+      `Generated template from ${result.uniquePaths} valid path(s). Skipped ${result.skippedPaths} structurally unsupported path(s).`
+    );
+    
+    if (Array.isArray(result.issues) && result.issues.length > 0) {
+      setPre(
+        'console',
+        'Validation issues (code -> workflowContext shape):\n' +
+          result.issues
+            .slice(0, 30)
+            .map((it) => `- ${JSON.stringify(it.path)}: ${it.reason}`)
+            .join('\n') +
+          (result.issues.length > 30 ? `\n...and ${result.issues.length - 30} more` : '')
+      );
+    }
+  });
+}
+
+// Create test case button
+const createButton = $('createButton');
+if (createButton) {
+  createButton.addEventListener('click', () => {
+    const name = $('newTestCaseName').value.trim();
+    
+    if (!name) {
+      setPre('result', 'Please enter a name for the new test case.');
+      return;
+    }
+    
+    if (workflowContextCases.hasOwnProperty(name)) {
+      setPre('result', `A test case with name "${name}" already exists. Choose a different name.`);
+      return;
+    }
+    
+    let newContext = {};
+    let newAssertion = defaultAssertion;
+    
+    if (modalState.mode === 'generate') {
+      if (!modalState.generatedTemplate) {
+        setPre('result', 'Please generate a template first.');
+        return;
+      }
+      newContext = modalState.generatedTemplate;
+    } else {
+      // Duplicate mode
+      const sourceCase = $('duplicateSelect').value;
+      if (!sourceCase) {
+        setPre('result', 'Please select a test case to duplicate.');
+        return;
+      }
+      
+      const source = normalizeCaseEntry(workflowContextCases[sourceCase]);
+      newContext = JSON.parse(JSON.stringify(source.workflowContext)); // Deep copy
+      newAssertion = source.assertion || defaultAssertion;
+    }
+    
+    try {
+      workflowContextCases[name] = {
+        workflowContext: newContext,
+        assertion: newAssertion,
+      };
+      selectedWorkflowContextName = name;
+      persistWorkflowContextCases();
+      setPre('result', `Created test case: ${name}`);
+      initWorkflowContextTestCasesUI();
+      setEditorToCase(name);
+      hideModal();
+    } catch (err) {
+      setPre('result', 'Error creating test case:\n' + formatError(err));
+    }
+  });
+}
+
+// Modal close buttons
+const closeModalBtn = $('closeModal');
+if (closeModalBtn) {
+  closeModalBtn.addEventListener('click', hideModal);
+}
+
+const cancelButton = $('cancelButton');
+if (cancelButton) {
+  cancelButton.addEventListener('click', hideModal);
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    hideModal();
+  }
+});
 
 async function runInBrowserWorker({ code, workflowContext, timeoutMs }) {
   // Web Worker lets us enforce timeouts (by terminating the worker).

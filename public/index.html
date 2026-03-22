@@ -37,19 +37,10 @@
               <select id="contextSelect"></select>
             </div>
             <div class="context-toolbar">
-              <div class="context-input-group">
-                <input
-                  id="newContextName"
-                  type="text"
-                  placeholder="New test case name"
-                  autocomplete="off"
-                />
-                <button id="saveNewContext" type="button" class="btn-sm">Save As</button>
-              </div>
               <div class="context-actions">
+                <button id="addTestCase" type="button" class="btn-sm">+ Add</button>
                 <button id="updateSelectedContext" type="button" class="btn-sm">Update</button>
                 <button id="deleteSelectedContext" type="button" class="btn-sm danger">Delete</button>
-                <button id="genWorkflowContext" type="button" class="btn-sm">Generate</button>
               </div>
             </div>
           </div>
@@ -90,6 +81,68 @@
           <pre id="console" class="pre"></pre>
         </div>
       </section>
+    </div>
+
+    <!-- Modal for creating new test cases -->
+    <div id="addTestCaseModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Create New Test Case</h3>
+          <button id="closeModal" type="button" class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-section">
+            <label class="field">Test Case Name</label>
+            <input
+              id="newTestCaseName"
+              type="text"
+              placeholder="e.g., Extract Emails, Invalid Input"
+              autocomplete="off"
+              class="modal-input"
+            />
+          </div>
+
+          <div class="modal-divider"></div>
+
+          <div class="modal-section">
+            <div class="modal-tabs">
+              <button
+                type="button"
+                id="tabGenerate"
+                class="modal-tab active"
+                data-tab="generate"
+              >
+                Generate New
+              </button>
+              <button
+                type="button"
+                id="tabDuplicate"
+                class="modal-tab"
+                data-tab="duplicate"
+              >
+                Duplicate
+              </button>
+            </div>
+
+            <div id="generatePanel" class="modal-panel active">
+              <p class="modal-hint">Generate workflowContext skeleton from the inline code.</p>
+              <button id="generateButton" type="button" class="btn-primary">Generate from Code</button>
+            </div>
+
+            <div id="duplicatePanel" class="modal-panel">
+              <p class="modal-hint">Copy an existing test case and rename it.</p>
+              <select id="duplicateSelect" class="modal-select">
+                <option value="">-- Select test case to duplicate --</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="cancelButton" type="button" class="btn-secondary">Cancel</button>
+          <button id="createButton" type="button" class="btn-primary">Create Test Case</button>
+        </div>
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
