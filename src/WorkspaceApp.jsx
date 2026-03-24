@@ -3,6 +3,7 @@ import { ExecutionService } from '../public/services/ExecutionService.js';
 import { StorageService } from '../public/services/StorageService.js';
 import { ValidationService } from '../public/services/ValidationService.js';
 import { CodeMirrorEditor } from './components/CodeMirrorEditor.jsx';
+import { AssertionHelpModal } from './components/AssertionHelpModal.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
 import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
 import { IntroBanner } from './components/IntroBanner.jsx';
@@ -39,6 +40,12 @@ const DEFAULT_WORKFLOW_CONTEXT = `{
 }`;
 
 const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
+const DEFAULT_ASSERTION_LIBRARY = StorageService.getDefaultAssertionLibrary();
+const ASSERTION_LIBRARY_OPTIONS = [
+  { value: 'expression', label: 'Boolean Expression' },
+  { value: 'assert', label: 'Chai Assert' },
+  { value: 'expect', label: 'Chai Expect' },
+];
 
 function formatError(err) {
   if (!err) return 'Unknown error';
@@ -61,6 +68,7 @@ function readInitialState() {
           code: DEFAULT_CODE,
           selectedCaseName,
           workflowContextCases: cases,
+          workflowPath: null,
         },
       },
       selectedActionName: defaultActionName,
@@ -68,6 +76,8 @@ function readInitialState() {
       code: DEFAULT_CODE,
       workflowText: JSON.stringify(entry.workflowContext, null, 2),
       assertionText: entry.assertion,
+      assertionLibrary: entry.assertionLibrary,
+      importedWorkflow: null,
     };
   }
 
@@ -93,6 +103,8 @@ function readInitialState() {
     code: actionEntry.code || DEFAULT_CODE,
     workflowText: JSON.stringify(entry.workflowContext, null, 2),
     assertionText: entry.assertion,
+    assertionLibrary: entry.assertionLibrary,
+    importedWorkflow: stored.importedWorkflow || null,
   };
 }
 
@@ -127,6 +139,7 @@ function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = []) {
       found.push({
         name: path.join(' / '),
         code: action.inputs.code,
+        path,
       });
     }
 
@@ -167,6 +180,82 @@ function extractInlineCodeActions(logicApp) {
   return collectInlineCodeActionsFromMap(rootActions);
 }
 
+function getRootActions(logicApp) {
+  if (logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object') {
+    return logicApp.definition.actions;
+  }
+
+  if (logicApp?.actions && typeof logicApp.actions === 'object') {
+    return logicApp.actions;
+  }
+
+  return null;
+}
+
+function getChildActionMap(action, segment) {
+  if (!action || typeof action !== 'object') return null;
+
+  if (segment === 'Else') {
+    return action.else?.actions && typeof action.else.actions === 'object' ? action.else.actions : null;
+  }
+
+  if (segment === 'Default') {
+    return action.default?.actions && typeof action.default.actions === 'object' ? action.default.actions : null;
+  }
+
+  if (action.cases && typeof action.cases === 'object') {
+    const caseEntry = action.cases[segment];
+    if (caseEntry?.actions && typeof caseEntry.actions === 'object') {
+      return caseEntry.actions;
+    }
+  }
+
+  if (action.actions && typeof action.actions === 'object') {
+    return action.actions;
+  }
+
+  return null;
+}
+
+function updateWorkflowInlineCode(logicApp, workflowPath, code) {
+  const rootActions = getRootActions(logicApp);
+  if (!rootActions || !Array.isArray(workflowPath) || workflowPath.length === 0) {
+    return false;
+  }
+
+  let currentMap = rootActions;
+  for (let index = 0; index < workflowPath.length; index += 1) {
+    const segment = workflowPath[index];
+    const action = currentMap?.[segment];
+    if (!action || typeof action !== 'object') {
+      return false;
+    }
+
+    if (index === workflowPath.length - 1) {
+      if (!action.inputs || typeof action.inputs !== 'object') {
+        action.inputs = {};
+      }
+      action.inputs.code = code;
+      return true;
+    }
+
+    currentMap = getChildActionMap(action, workflowPath[index + 1]);
+    if (!currentMap) {
+      return false;
+    }
+    index += 1;
+  }
+
+  return false;
+}
+
+function indentBlock(text, indent = '    ') {
+  return String(text || '')
+    .split('\n')
+    .map((line) => `${indent}${line}`)
+    .join('\n');
+}
+
 export function App() {
   const initialState = useMemo(() => readInitialState(), []);
   const [actions, setActions] = useState(initialState.actions);
@@ -175,6 +264,9 @@ export function App() {
   const [selectedCaseName, setSelectedCaseName] = useState(initialState.selectedCaseName);
   const [workflowText, setWorkflowText] = useState(initialState.workflowText || DEFAULT_WORKFLOW_CONTEXT);
   const [assertionText, setAssertionText] = useState(initialState.assertionText || DEFAULT_ASSERTION);
+  const [assertionLibrary, setAssertionLibrary] = useState(
+    initialState.assertionLibrary || DEFAULT_ASSERTION_LIBRARY
+  );
   const [timeoutMs, setTimeoutMs] = useState(1000);
   const [resultLines, setResultLines] = useState([]);
   const [consoleText, setConsoleText] = useState('');
@@ -185,10 +277,12 @@ export function App() {
   const [generatedTemplate, setGeneratedTemplate] = useState(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importWorkflowText, setImportWorkflowText] = useState('');
+  const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
+  const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
 
   useEffect(() => {
-    StorageService.saveTestCases(actions, selectedActionName);
-  }, [actions, selectedActionName]);
+    StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
+  }, [actions, importedWorkflow, selectedActionName]);
 
   useEffect(() => {
     if (!selectedActionName || !selectedCaseName) return;
@@ -213,15 +307,21 @@ export function App() {
           DEFAULT_ASSERTION
         );
         const nextAssertion = assertionText || DEFAULT_ASSERTION;
+        const nextAssertionLibrary = assertionLibrary || DEFAULT_ASSERTION_LIBRARY;
         const currentWorkflowJson = JSON.stringify(currentEntry.workflowContext);
         const nextWorkflowJson = JSON.stringify(parsedWorkflowContext);
 
-        if (currentWorkflowJson !== nextWorkflowJson || currentEntry.assertion !== nextAssertion) {
+        if (
+          currentWorkflowJson !== nextWorkflowJson ||
+          currentEntry.assertion !== nextAssertion ||
+          currentEntry.assertionLibrary !== nextAssertionLibrary
+        ) {
           nextAction.workflowContextCases = {
             ...currentAction.workflowContextCases,
             [selectedCaseName]: {
               workflowContext: parsedWorkflowContext,
               assertion: nextAssertion,
+              assertionLibrary: nextAssertionLibrary,
             },
           };
         }
@@ -242,7 +342,7 @@ export function App() {
         [selectedActionName]: nextAction,
       };
     });
-  }, [assertionText, code, selectedActionName, selectedCaseName, workflowText]);
+  }, [assertionLibrary, assertionText, code, selectedActionName, selectedCaseName, workflowText]);
 
   const currentAction = useMemo(
     () =>
@@ -270,6 +370,7 @@ export function App() {
     const entry = StorageService.normalizeCaseEntry(nextCases[caseName], DEFAULT_ASSERTION);
     setWorkflowText(JSON.stringify(entry.workflowContext, null, 2));
     setAssertionText(entry.assertion || DEFAULT_ASSERTION);
+    setAssertionLibrary(entry.assertionLibrary || DEFAULT_ASSERTION_LIBRARY);
   }
 
   function loadAction(actionName, nextActions = actions) {
@@ -322,6 +423,7 @@ export function App() {
           [selectedCaseName]: {
             workflowContext: JSON.parse(workflowText || '{}'),
             assertion: assertionText || DEFAULT_ASSERTION,
+            assertionLibrary: assertionLibrary || DEFAULT_ASSERTION_LIBRARY,
           },
         },
       },
@@ -357,10 +459,12 @@ export function App() {
         code: DEFAULT_CODE,
         selectedCaseName: StorageService.getDefaultCaseName(),
         workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+        workflowPath: null,
       },
     };
 
     setActions(nextActions);
+    setImportedWorkflow(null);
     loadAction(actionName, nextActions);
     setResultLines([`Created action: ${actionName}`]);
   }
@@ -382,9 +486,11 @@ export function App() {
           code: DEFAULT_CODE,
           selectedCaseName: StorageService.getDefaultCaseName(),
           workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+          workflowPath: null,
         },
       };
       setActions(defaults);
+      setImportedWorkflow(null);
       loadAction(defaultActionName, defaults);
     } else {
       setActions(nextActions);
@@ -492,6 +598,7 @@ export function App() {
           code: action.code,
           selectedCaseName: StorageService.getDefaultCaseName(),
           workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+          workflowPath: action.path,
         };
       });
 
@@ -499,6 +606,7 @@ export function App() {
       setActions(nextActions);
       setSelectedActionName(firstActionName);
       setImportWorkflowText(jsonText);
+      setImportedWorkflow(JSON.parse(jsonText));
       setImportModalOpen(false);
       setGeneratedTemplate(null);
       setModalOpen(false);
@@ -510,6 +618,140 @@ export function App() {
     } catch (error) {
       setResultLines([`Invalid Logic App JSON:\n${formatError(error)}`]);
     }
+  }
+
+  function handleExportWorkflow() {
+    if (!importedWorkflow) {
+      setResultLines(['Import a Logic App workflow first before exporting an updated workflow JSON.']);
+      return;
+    }
+
+    let nextActions;
+    try {
+      nextActions = syncSelectedAction();
+    } catch (error) {
+      setResultLines([`Invalid workflowContext JSON in selected action:\n${formatError(error)}`]);
+      return;
+    }
+
+    const exportedWorkflow = cloneJson(importedWorkflow);
+    const missingPaths = [];
+
+    for (const [actionName, actionEntryRaw] of Object.entries(nextActions)) {
+      const actionEntry = StorageService.normalizeActionEntry(actionEntryRaw, DEFAULT_CODE, DEFAULT_ASSERTION);
+      if (!Array.isArray(actionEntry.workflowPath) || actionEntry.workflowPath.length === 0) {
+        continue;
+      }
+
+      const updated = updateWorkflowInlineCode(exportedWorkflow, actionEntry.workflowPath, actionEntry.code);
+      if (!updated) {
+        missingPaths.push(actionName);
+      }
+    }
+
+    const jsonText = JSON.stringify(exportedWorkflow, null, 2);
+    const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = 'logic-app-workflow.updated.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+
+    if (missingPaths.length > 0) {
+      setResultLines([
+        `Exported workflow JSON, but ${missingPaths.length} action path${missingPaths.length === 1 ? '' : 's'} could not be updated: ${missingPaths.join(', ')}`,
+      ]);
+      return;
+    }
+
+    setResultLines(['Exported workflow JSON with updated inline JavaScript actions.']);
+  }
+
+  function buildVitestSuite(nextActions) {
+    const lines = [];
+    lines.push(`import { describe, it } from 'vitest';`);
+    lines.push(`import { assert, expect } from 'chai';`);
+    lines.push('');
+    lines.push('function runInlineSnippet(code, workflowContext) {');
+    lines.push(`  const fn = new Function('workflowContext', '"use strict";\\n' + code);`);
+    lines.push('  return fn(workflowContext);');
+    lines.push('}');
+    lines.push('');
+    lines.push('function toJsonSafeValue(value) {');
+    lines.push('  const seen = new WeakSet();');
+    lines.push('  const json = JSON.stringify(value, (key, val) => {');
+    lines.push(`    if (typeof val === 'bigint') return \`\${val.toString()}n\`;`);
+    lines.push(`    if (typeof val === 'object' && val !== null) {`);
+    lines.push('      if (seen.has(val)) return "[Circular]";');
+    lines.push('      seen.add(val);');
+    lines.push('    }');
+    lines.push(`    if (typeof val === 'function') return '[Function]';`);
+    lines.push('    return val;');
+    lines.push('  });');
+    lines.push('  return json === undefined ? null : JSON.parse(json);');
+    lines.push('}');
+    lines.push('');
+
+    for (const actionName of Object.keys(nextActions).sort((left, right) => left.localeCompare(right))) {
+      const actionEntry = StorageService.normalizeActionEntry(
+        nextActions[actionName],
+        DEFAULT_CODE,
+        DEFAULT_ASSERTION,
+        DEFAULT_ASSERTION_LIBRARY
+      );
+      lines.push(`describe(${JSON.stringify(actionName)}, () => {`);
+      for (const caseName of Object.keys(actionEntry.workflowContextCases).sort((left, right) => left.localeCompare(right))) {
+        const entry = StorageService.normalizeCaseEntry(
+          actionEntry.workflowContextCases[caseName],
+          DEFAULT_ASSERTION,
+          DEFAULT_ASSERTION_LIBRARY
+        );
+        lines.push(`  it(${JSON.stringify(caseName)}, () => {`);
+        lines.push(`    const code = ${JSON.stringify(actionEntry.code)};`);
+        lines.push(`    const workflowContext = ${JSON.stringify(entry.workflowContext, null, 2)};`);
+        lines.push('    const result = toJsonSafeValue(runInlineSnippet(code, workflowContext));');
+        if (entry.assertionLibrary === 'expression') {
+          lines.push('    const passed = (() => {');
+          lines.push('      return (');
+          lines.push(indentBlock(entry.assertion, '        '));
+          lines.push('      );');
+          lines.push('    })();');
+          lines.push('    assert.equal(passed, true);');
+        } else {
+          lines.push(indentBlock(entry.assertion, '    '));
+        }
+        lines.push('  });');
+      }
+      lines.push('});');
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  function handleExportTests() {
+    let nextActions;
+    try {
+      nextActions = syncSelectedAction();
+    } catch (error) {
+      setResultLines([`Invalid workflowContext JSON in selected action:\n${formatError(error)}`]);
+      return;
+    }
+
+    const testFileText = buildVitestSuite(nextActions);
+    const blob = new Blob([testFileText], { type: 'text/javascript;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = 'logic-inline-code.spec.js';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+    setResultLines(['Exported a Vitest-ready test suite for the current inline actions and test cases using Chai.']);
   }
 
   function openModal() {
@@ -561,6 +803,7 @@ export function App() {
 
     let workflowContext = {};
     let assertion = DEFAULT_ASSERTION;
+    let nextAssertionLibrary = assertionLibrary || DEFAULT_ASSERTION_LIBRARY;
 
     if (modalMode === 'generate') {
       if (!generatedTemplate) {
@@ -579,6 +822,7 @@ export function App() {
       );
       workflowContext = cloneJson(entry.workflowContext);
       assertion = entry.assertion || DEFAULT_ASSERTION;
+      nextAssertionLibrary = entry.assertionLibrary || DEFAULT_ASSERTION_LIBRARY;
     }
 
     const nextCases = {
@@ -586,6 +830,7 @@ export function App() {
       [name]: {
         workflowContext,
         assertion,
+        assertionLibrary: nextAssertionLibrary,
       },
     };
 
@@ -617,7 +862,8 @@ export function App() {
       code,
       parsedWorkflowContext,
       assertionText,
-      Number(timeoutMs)
+      Number(timeoutMs),
+      assertionLibrary
     );
 
     if (!runData?.ok) {
@@ -683,7 +929,8 @@ export function App() {
         actionEntry.code,
         entry.workflowContext,
         entry.assertion,
-        Number(timeoutMs)
+        Number(timeoutMs),
+        entry.assertionLibrary
       );
 
       if (!runData?.ok) {
@@ -734,6 +981,9 @@ export function App() {
   return (
     <div className="container">
       <HeaderBar
+        canExportWorkflow={Boolean(importedWorkflow)}
+        onExportWorkflow={handleExportWorkflow}
+        onExportTests={handleExportTests}
         statusSummary={statusSummary}
         onImportWorkflow={openImportModal}
         onRunAll={handleRunAll}
@@ -784,6 +1034,31 @@ export function App() {
           </div>
 
           <div className="panel-title section-title">Assertion (paired with selected test case)</div>
+          <div className="field field-inline">
+            <label htmlFor="assertionLibrary">Assertion Library</label>
+            <div className="field-row">
+              <div className="field-grow">
+                <select
+                  id="assertionLibrary"
+                  value={assertionLibrary}
+                  onChange={(event) => setAssertionLibrary(event.target.value)}
+                >
+                  {ASSERTION_LIBRARY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            <button
+              type="button"
+              className="assertion-help-trigger"
+              onClick={() => setAssertionHelpOpen(true)}
+            >
+              Help
+            </button>
+            </div>
+          </div>
           <CodeMirrorEditor
             editorId="assertion"
             value={assertionText}
@@ -793,8 +1068,22 @@ export function App() {
             lineNumbers={false}
           />
           <div className="hint">
-            JavaScript expression that must evaluate to <code>true</code>. Available variables:
-            <code>result</code>, <code>workflowContext</code>.
+            {assertionLibrary === 'expression' ? (
+              <>
+                JavaScript expression that must evaluate to <code>true</code>. Available variables:
+                <code>result</code>, <code>workflowContext</code>.
+              </>
+            ) : assertionLibrary === 'assert' ? (
+              <>
+                Assertion body using Chai <code>assert</code>, plus <code>result</code> and
+                <code>workflowContext</code>.
+              </>
+            ) : (
+              <>
+                Expect-style assertion body using Chai <code>expect</code>, plus <code>result</code> and
+                <code>workflowContext</code>.
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -853,6 +1142,8 @@ export function App() {
         parseWorkflow={parseWorkflowImport}
         existingActionCount={actionNames.length}
       />
+
+      <AssertionHelpModal open={assertionHelpOpen} onClose={() => setAssertionHelpOpen(false)} />
     </div>
   );
 }

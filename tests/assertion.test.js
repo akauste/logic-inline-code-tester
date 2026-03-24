@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { assert: chaiAssert, expect: chaiExpect } = require('chai');
 const { runInlineSnippet, toJsonSafeValue } = require('./runInlineSnippet.js');
 
 // Define the default constants directly for testing
@@ -33,17 +34,31 @@ const DEFAULT_WORKFLOW_CONTEXT = `{
 
 const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
 
-function evaluateAssertion({ assertionText, resultValue, workflowContext }) {
+function evaluateAssertion({ assertionLibrary = 'expression', assertionText, resultValue, workflowContext }) {
   const text = (assertionText || '').trim();
   if (!text) {
     return { hasAssertion: false, passed: null };
   }
 
-  const fn = new Function(
-    'result',
-    'workflowContext',
-    `"use strict"; return (${text});`
-  );
+  if (assertionLibrary === 'assert') {
+    const fn = new Function('result', 'workflowContext', 'assert', `"use strict";\n${text}\nreturn true;`);
+    return {
+      hasAssertion: true,
+      passed: fn(resultValue, workflowContext, chaiAssert) !== false,
+      actual: true,
+    };
+  }
+
+  if (assertionLibrary === 'expect') {
+    const fn = new Function('result', 'workflowContext', 'expect', `"use strict";\n${text}\nreturn true;`);
+    return {
+      hasAssertion: true,
+      passed: fn(resultValue, workflowContext, chaiExpect) !== false,
+      actual: true,
+    };
+  }
+
+  const fn = new Function('result', 'workflowContext', `"use strict"; return (${text});`);
   const value = fn(resultValue, workflowContext);
 
   return {
@@ -111,6 +126,32 @@ test('assertion fails when condition is false', () => {
   });
   assert.equal(assertion.hasAssertion, true);
   assert.equal(assertion.passed, false);
+});
+
+test('assert library assertions can pass', () => {
+  const workflowContext = { trigger: { outputs: { body: { Body: 'hello' } } } };
+  const rawResult = runInlineSnippet('return { count: 2, items: ["a", "b"] };', workflowContext);
+  const resultValue = toJsonSafeValue(rawResult);
+  const assertion = evaluateAssertion({
+    assertionLibrary: 'assert',
+    assertionText: 'assert.equal(result.count, 2);\nassert.deepEqual(result.items, ["a", "b"]);',
+    resultValue,
+    workflowContext,
+  });
+  assert.equal(assertion.passed, true);
+});
+
+test('expect library assertions can pass', () => {
+  const workflowContext = { trigger: { outputs: { body: { Body: 'hello' } } } };
+  const rawResult = runInlineSnippet('return ["first", "second"];', workflowContext);
+  const resultValue = toJsonSafeValue(rawResult);
+  const assertion = evaluateAssertion({
+    assertionLibrary: 'expect',
+    assertionText: 'expect(result).to.have.lengthOf(2);\nexpect(result[0]).to.equal("first");',
+    resultValue,
+    workflowContext,
+  });
+  assert.equal(assertion.passed, true);
 });
 
 test('default constants are defined', () => {

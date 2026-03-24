@@ -2,6 +2,7 @@
  * Execution Service - Handles code execution in Web Workers
  * Pure business logic, no DOM manipulation
  */
+import { assert, expect } from 'chai';
 import { ValidationService } from './ValidationService.js';
 export class ExecutionService {
   /**
@@ -12,7 +13,7 @@ export class ExecutionService {
    * @param {number} timeoutMs - Execution timeout
    * @returns {Promise<object>} Execution result
    */
-  static async execute(code, workflowContext, assertionText, timeoutMs = 1000) {
+  static async execute(code, workflowContext, assertionText, timeoutMs = 1000, assertionLibrary = 'expression') {
     const validationText = this.buildValidationText(code, workflowContext);
 
     // Static / browser-only: execution runs in a Web Worker
@@ -22,6 +23,7 @@ export class ExecutionService {
     if (runData?.ok) {
       try {
         assertionOutcome = this.evaluateAssertion({
+          assertionLibrary,
           assertionText,
           resultValue: runData.resultValue,
           workflowContext,
@@ -43,17 +45,29 @@ export class ExecutionService {
    * @param {object} params - Assertion parameters
    * @returns {object} Assertion result
    */
-  static evaluateAssertion({ assertionText, resultValue, workflowContext }) {
+  static evaluateAssertion({ assertionLibrary = 'expression', assertionText, resultValue, workflowContext }) {
     const text = (assertionText || '').trim();
     if (!text) {
       return { hasAssertion: false, passed: null, message: 'No assertion defined for this test case.' };
     }
 
-    const fn = new Function(
-      'result',
-      'workflowContext',
-      `"use strict"; return (${text});`
-    );
+    if (assertionLibrary === 'assert') {
+      const fn = new Function('result', 'workflowContext', 'assert', `"use strict";\n${text}\nreturn true;`);
+      const value = fn(resultValue, workflowContext, assert);
+      return value === false
+        ? { hasAssertion: true, passed: false, message: 'Assertion failed (returned false).' }
+        : { hasAssertion: true, passed: true, message: 'Assertion passed.' };
+    }
+
+    if (assertionLibrary === 'expect') {
+      const fn = new Function('result', 'workflowContext', 'expect', `"use strict";\n${text}\nreturn true;`);
+      const value = fn(resultValue, workflowContext, expect);
+      return value === false
+        ? { hasAssertion: true, passed: false, message: 'Assertion failed (returned false).' }
+        : { hasAssertion: true, passed: true, message: 'Assertion passed.' };
+    }
+
+    const fn = new Function('result', 'workflowContext', `"use strict"; return (${text});`);
     const value = fn(resultValue, workflowContext);
 
     if (value === true) {
