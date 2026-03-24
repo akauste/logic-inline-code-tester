@@ -6,6 +6,7 @@ export class StorageService {
   static STORAGE_KEY = 'logicInlineCodeTester.workflowContexts.v1';
   static DEFAULT_ACTION_NAME = 'Inline Code';
   static DEFAULT_CASE_NAME = 'default';
+  static DEFAULT_ASSERTION_LIBRARY = 'expression';
 
   /**
    * Load action suites from localStorage
@@ -89,10 +90,14 @@ export class StorageService {
    * @param {string} defaultAssertion - Default assertion text
    * @returns {object} Normalized entry with workflowContext and assertion
    */
-  static normalizeCaseEntry(entry, defaultAssertion = 'true') {
+  static normalizeCaseEntry(entry, defaultAssertion = 'true', defaultAssertionLibrary = 'expression') {
     // Backward compatibility: older storage kept plain workflowContext object.
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      return { workflowContext: {}, assertion: defaultAssertion };
+      return {
+        workflowContext: {},
+        assertion: defaultAssertion,
+        assertionLibrary: defaultAssertionLibrary,
+      };
     }
 
     if (Object.prototype.hasOwnProperty.call(entry, 'workflowContext')) {
@@ -101,10 +106,18 @@ export class StorageService {
           ? entry.workflowContext
           : {};
       const assertion = typeof entry.assertion === 'string' ? entry.assertion : defaultAssertion;
-      return { workflowContext, assertion };
+      const assertionLibrary =
+        typeof entry.assertionLibrary === 'string' && entry.assertionLibrary
+          ? entry.assertionLibrary
+          : defaultAssertionLibrary;
+      return { workflowContext, assertion, assertionLibrary };
     }
 
-    return { workflowContext: entry, assertion: defaultAssertion };
+    return {
+      workflowContext: entry,
+      assertion: defaultAssertion,
+      assertionLibrary: defaultAssertionLibrary,
+    };
   }
 
   /**
@@ -114,20 +127,28 @@ export class StorageService {
    * @param {string} defaultAssertion - Default assertion text
    * @returns {{ code: string, selectedCaseName: string, workflowContextCases: object, workflowPath: string[]|null }}
    */
-  static normalizeActionEntry(entry, defaultCode = '', defaultAssertion = 'true') {
+  static normalizeActionEntry(entry, defaultCode = '', defaultAssertion = 'true', defaultAssertionLibrary = 'expression') {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       return {
         code: defaultCode,
         selectedCaseName: this.DEFAULT_CASE_NAME,
-        workflowContextCases: this.createDefaultCases(defaultAssertion),
+        workflowContextCases: this.createDefaultCases(defaultAssertion, defaultAssertionLibrary),
         workflowPath: null,
       };
     }
 
-    const workflowContextCases =
+    const workflowContextCasesRaw =
       entry.workflowContextCases && typeof entry.workflowContextCases === 'object'
         ? entry.workflowContextCases
-        : this.createDefaultCases(defaultAssertion);
+        : this.createDefaultCases(defaultAssertion, defaultAssertionLibrary);
+    const workflowContextCases = {};
+    for (const [caseName, caseEntry] of Object.entries(workflowContextCasesRaw)) {
+      workflowContextCases[caseName] = this.normalizeCaseEntry(
+        caseEntry,
+        defaultAssertion,
+        defaultAssertionLibrary
+      );
+    }
 
     const caseNames = Object.keys(workflowContextCases);
     const selectedCaseName =
@@ -148,7 +169,7 @@ export class StorageService {
    * @param {string} defaultAssertion - Default assertion text
    * @returns {object} Default cases object
    */
-  static createDefaultCases(defaultAssertion = 'true') {
+  static createDefaultCases(defaultAssertion = 'true', defaultAssertionLibrary = this.DEFAULT_ASSERTION_LIBRARY) {
     const defaultWorkflowContext = `{
   "actions": {},
   "trigger": {
@@ -170,6 +191,7 @@ export class StorageService {
         [this.DEFAULT_CASE_NAME]: {
           workflowContext: JSON.parse(defaultWorkflowContext),
           assertion: defaultAssertion,
+          assertionLibrary: defaultAssertionLibrary,
         },
       };
     } catch {
@@ -177,6 +199,7 @@ export class StorageService {
         [this.DEFAULT_CASE_NAME]: {
           workflowContext: {},
           assertion: defaultAssertion,
+          assertionLibrary: defaultAssertionLibrary,
         },
       };
     }
@@ -196,5 +219,9 @@ export class StorageService {
    */
   static getDefaultActionName() {
     return this.DEFAULT_ACTION_NAME;
+  }
+
+  static getDefaultAssertionLibrary() {
+    return this.DEFAULT_ASSERTION_LIBRARY;
   }
 }

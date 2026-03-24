@@ -12,7 +12,7 @@ export class ExecutionService {
    * @param {number} timeoutMs - Execution timeout
    * @returns {Promise<object>} Execution result
    */
-  static async execute(code, workflowContext, assertionText, timeoutMs = 1000) {
+  static async execute(code, workflowContext, assertionText, timeoutMs = 1000, assertionLibrary = 'expression') {
     const validationText = this.buildValidationText(code, workflowContext);
 
     // Static / browser-only: execution runs in a Web Worker
@@ -22,6 +22,7 @@ export class ExecutionService {
     if (runData?.ok) {
       try {
         assertionOutcome = this.evaluateAssertion({
+          assertionLibrary,
           assertionText,
           resultValue: runData.resultValue,
           workflowContext,
@@ -43,17 +44,29 @@ export class ExecutionService {
    * @param {object} params - Assertion parameters
    * @returns {object} Assertion result
    */
-  static evaluateAssertion({ assertionText, resultValue, workflowContext }) {
+  static evaluateAssertion({ assertionLibrary = 'expression', assertionText, resultValue, workflowContext }) {
     const text = (assertionText || '').trim();
     if (!text) {
       return { hasAssertion: false, passed: null, message: 'No assertion defined for this test case.' };
     }
 
-    const fn = new Function(
-      'result',
-      'workflowContext',
-      `"use strict"; return (${text});`
-    );
+    if (assertionLibrary === 'assert') {
+      const fn = new Function('result', 'workflowContext', 'assert', `"use strict";\n${text}\nreturn true;`);
+      const value = fn(resultValue, workflowContext, this.createAssert());
+      return value === false
+        ? { hasAssertion: true, passed: false, message: 'Assertion failed (returned false).' }
+        : { hasAssertion: true, passed: true, message: 'Assertion passed.' };
+    }
+
+    if (assertionLibrary === 'expect') {
+      const fn = new Function('result', 'workflowContext', 'expect', `"use strict";\n${text}\nreturn true;`);
+      const value = fn(resultValue, workflowContext, this.createExpect());
+      return value === false
+        ? { hasAssertion: true, passed: false, message: 'Assertion failed (returned false).' }
+        : { hasAssertion: true, passed: true, message: 'Assertion passed.' };
+    }
+
+    const fn = new Function('result', 'workflowContext', `"use strict"; return (${text});`);
     const value = fn(resultValue, workflowContext);
 
     if (value === true) {
@@ -65,6 +78,111 @@ export class ExecutionService {
       passed: false,
       message: `Assertion failed (expected true, got ${String(value)}).`,
     };
+  }
+
+  static createAssertionError(message) {
+    const error = new Error(message);
+    error.name = 'AssertionError';
+    return error;
+  }
+
+  static isDeepEqual(left, right) {
+    if (Object.is(left, right)) return true;
+    if (typeof left !== typeof right) return false;
+    if (left === null || right === null) return left === right;
+    if (typeof left !== 'object') return false;
+    if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+    if (Array.isArray(left)) {
+      if (left.length !== right.length) return false;
+      for (let index = 0; index < left.length; index += 1) {
+        if (!this.isDeepEqual(left[index], right[index])) return false;
+      }
+      return true;
+    }
+
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (const key of leftKeys) {
+      if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+      if (!this.isDeepEqual(left[key], right[key])) return false;
+    }
+    return true;
+  }
+
+  static createAssert() {
+    const fail = (message) => {
+      throw this.createAssertionError(message || 'Assertion failed.');
+    };
+
+    return {
+      fail,
+      ok: (value, message) => {
+        if (!value) fail(message || `Expected value to be truthy, got ${String(value)}.`);
+      },
+      equal: (actual, expected, message) => {
+        if (actual !== expected) fail(message || `Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}.`);
+      },
+      deepEqual: (actual, expected, message) => {
+        if (!this.isDeepEqual(actual, expected)) {
+          fail(message || `Expected ${JSON.stringify(actual)} to deepEqual ${JSON.stringify(expected)}.`);
+        }
+      },
+      match: (actual, expected, message) => {
+        if (!(expected instanceof RegExp)) fail('assert.match expected a RegExp.');
+        if (typeof actual !== 'string' || !expected.test(actual)) {
+          fail(message || `Expected ${JSON.stringify(actual)} to match ${String(expected)}.`);
+        }
+      },
+    };
+  }
+
+  static createExpect() {
+    const fail = (message) => {
+      throw this.createAssertionError(message || 'Expectation failed.');
+    };
+
+    return (received) => ({
+      toBe: (expected) => {
+        if (received !== expected) fail(`Expected ${JSON.stringify(received)} to be ${JSON.stringify(expected)}.`);
+      },
+      toEqual: (expected) => {
+        if (!this.isDeepEqual(received, expected)) {
+          fail(`Expected ${JSON.stringify(received)} to equal ${JSON.stringify(expected)}.`);
+        }
+      },
+      toContain: (expected) => {
+        if (typeof received === 'string') {
+          if (!received.includes(expected)) fail(`Expected string to contain ${JSON.stringify(expected)}.`);
+          return;
+        }
+        if (Array.isArray(received)) {
+          if (!received.some((item) => this.isDeepEqual(item, expected))) {
+            fail(`Expected array to contain ${JSON.stringify(expected)}.`);
+          }
+          return;
+        }
+        fail('toContain supports strings and arrays only.');
+      },
+      toMatch: (expected) => {
+        if (!(expected instanceof RegExp)) fail('toMatch expected a RegExp.');
+        if (typeof received !== 'string' || !expected.test(received)) {
+          fail(`Expected ${JSON.stringify(received)} to match ${String(expected)}.`);
+        }
+      },
+      toBeTruthy: () => {
+        if (!received) fail(`Expected ${JSON.stringify(received)} to be truthy.`);
+      },
+      toBeFalsy: () => {
+        if (received) fail(`Expected ${JSON.stringify(received)} to be falsy.`);
+      },
+      toHaveLength: (expected) => {
+        if (received == null || typeof received.length !== 'number' || received.length !== expected) {
+          fail(`Expected value to have length ${expected}.`);
+        }
+      },
+    });
   }
 
   /**

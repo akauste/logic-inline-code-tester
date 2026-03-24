@@ -1,6 +1,13 @@
 import React from 'react';
 
-export function HeaderBar({ statusSummary, onExportWorkflow, onImportWorkflow, onRunAll, canExportWorkflow }) {
+export function HeaderBar({
+  statusSummary,
+  onExportWorkflow,
+  onExportTests,
+  onImportWorkflow,
+  onRunAll,
+  canExportWorkflow,
+}) {
   return (
     <header>
       <h1>Inline JS Code Tester for Logic Apps Standard</h1>
@@ -10,6 +17,9 @@ export function HeaderBar({ statusSummary, onExportWorkflow, onImportWorkflow, o
         </button>
         <button type="button" className="btn-sm" onClick={onExportWorkflow} disabled={!canExportWorkflow}>
           Export Workflow
+        </button>
+        <button type="button" className="btn-sm" onClick={onExportTests}>
+          Export Tests
         </button>
         <button type="button" className="btn-sm primary" onClick={onRunAll}>
           Run Tests

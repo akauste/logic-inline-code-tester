@@ -217,6 +217,19 @@ input[type='number'] {
   outline: none;
 }
 
+select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #0f1731;
+  color: var(--text);
+  outline: none;
+}
+
+.field-inline {
+  margin-bottom: 10px;
+}
+
 button {
   padding: 10px 16px;
   border-radius: 10px;

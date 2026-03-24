@@ -33,17 +33,104 @@ const DEFAULT_WORKFLOW_CONTEXT = `{
 
 const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
 
-function evaluateAssertion({ assertionText, resultValue, workflowContext }) {
+function createAssertionError(message) {
+  const error = new Error(message);
+  error.name = 'AssertionError';
+  return error;
+}
+
+function isDeepEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right) return false;
+  if (left === null || right === null) return left === right;
+  if (typeof left !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+  if (Array.isArray(left)) {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!isDeepEqual(left[index], right[index])) return false;
+    }
+    return true;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+    if (!isDeepEqual(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+function createAssert() {
+  const fail = (message) => {
+    throw createAssertionError(message || 'Assertion failed.');
+  };
+
+  return {
+    ok: (value, message) => {
+      if (!value) fail(message || `Expected value to be truthy, got ${String(value)}.`);
+    },
+    equal: (actual, expected, message) => {
+      if (actual !== expected) fail(message || `Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}.`);
+    },
+    deepEqual: (actual, expected, message) => {
+      if (!isDeepEqual(actual, expected)) {
+        fail(message || `Expected ${JSON.stringify(actual)} to deepEqual ${JSON.stringify(expected)}.`);
+      }
+    },
+  };
+}
+
+function createExpect() {
+  const fail = (message) => {
+    throw createAssertionError(message || 'Expectation failed.');
+  };
+
+  return (received) => ({
+    toBe: (expected) => {
+      if (received !== expected) fail(`Expected ${JSON.stringify(received)} to be ${JSON.stringify(expected)}.`);
+    },
+    toEqual: (expected) => {
+      if (!isDeepEqual(received, expected)) {
+        fail(`Expected ${JSON.stringify(received)} to equal ${JSON.stringify(expected)}.`);
+      }
+    },
+    toHaveLength: (expected) => {
+      if (received == null || typeof received.length !== 'number' || received.length !== expected) {
+        fail(`Expected value to have length ${expected}.`);
+      }
+    },
+  });
+}
+
+function evaluateAssertion({ assertionLibrary = 'expression', assertionText, resultValue, workflowContext }) {
   const text = (assertionText || '').trim();
   if (!text) {
     return { hasAssertion: false, passed: null };
   }
 
-  const fn = new Function(
-    'result',
-    'workflowContext',
-    `"use strict"; return (${text});`
-  );
+  if (assertionLibrary === 'assert') {
+    const fn = new Function('result', 'workflowContext', 'assert', `"use strict";\n${text}\nreturn true;`);
+    return {
+      hasAssertion: true,
+      passed: fn(resultValue, workflowContext, createAssert()) !== false,
+      actual: true,
+    };
+  }
+
+  if (assertionLibrary === 'expect') {
+    const fn = new Function('result', 'workflowContext', 'expect', `"use strict";\n${text}\nreturn true;`);
+    return {
+      hasAssertion: true,
+      passed: fn(resultValue, workflowContext, createExpect()) !== false,
+      actual: true,
+    };
+  }
+
+  const fn = new Function('result', 'workflowContext', `"use strict"; return (${text});`);
   const value = fn(resultValue, workflowContext);
 
   return {
@@ -111,6 +198,32 @@ test('assertion fails when condition is false', () => {
   });
   assert.equal(assertion.hasAssertion, true);
   assert.equal(assertion.passed, false);
+});
+
+test('assert library assertions can pass', () => {
+  const workflowContext = { trigger: { outputs: { body: { Body: 'hello' } } } };
+  const rawResult = runInlineSnippet('return { count: 2, items: ["a", "b"] };', workflowContext);
+  const resultValue = toJsonSafeValue(rawResult);
+  const assertion = evaluateAssertion({
+    assertionLibrary: 'assert',
+    assertionText: 'assert.equal(result.count, 2);\nassert.deepEqual(result.items, ["a", "b"]);',
+    resultValue,
+    workflowContext,
+  });
+  assert.equal(assertion.passed, true);
+});
+
+test('expect library assertions can pass', () => {
+  const workflowContext = { trigger: { outputs: { body: { Body: 'hello' } } } };
+  const rawResult = runInlineSnippet('return ["first", "second"];', workflowContext);
+  const resultValue = toJsonSafeValue(rawResult);
+  const assertion = evaluateAssertion({
+    assertionLibrary: 'expect',
+    assertionText: 'expect(result).toHaveLength(2);\nexpect(result[0]).toBe("first");',
+    resultValue,
+    workflowContext,
+  });
+  assert.equal(assertion.passed, true);
 });
 
 test('default constants are defined', () => {
