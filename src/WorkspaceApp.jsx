@@ -4,6 +4,7 @@ import { StorageService } from '../public/services/StorageService.js';
 import { ValidationService } from '../public/services/ValidationService.js';
 import { CodeMirrorEditor } from './components/CodeMirrorEditor.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
+import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
 import { IntroBanner } from './components/IntroBanner.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
@@ -99,6 +100,73 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function sanitizeActionName(name, fallbackIndex) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  return trimmed || `Inline Action ${fallbackIndex + 1}`;
+}
+
+function buildUniqueActionName(baseName, existingNames) {
+  if (!existingNames.has(baseName)) return baseName;
+
+  let suffix = 2;
+  while (existingNames.has(`${baseName} (${suffix})`)) {
+    suffix += 1;
+  }
+
+  return `${baseName} (${suffix})`;
+}
+
+function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = []) {
+  if (!actionMap || typeof actionMap !== 'object') return found;
+
+  for (const [actionName, action] of Object.entries(actionMap)) {
+    if (!action || typeof action !== 'object') continue;
+
+    const path = [...prefix, actionName];
+    if (action.type === 'ExecuteJavaScriptCode' && typeof action.inputs?.code === 'string') {
+      found.push({
+        name: path.join(' / '),
+        code: action.inputs.code,
+      });
+    }
+
+    if (action.actions && typeof action.actions === 'object') {
+      collectInlineCodeActionsFromMap(action.actions, path, found);
+    }
+
+    if (action.else?.actions && typeof action.else.actions === 'object') {
+      collectInlineCodeActionsFromMap(action.else.actions, [...path, 'Else'], found);
+    }
+
+    if (action.default?.actions && typeof action.default.actions === 'object') {
+      collectInlineCodeActionsFromMap(action.default.actions, [...path, 'Default'], found);
+    }
+
+    if (action.cases && typeof action.cases === 'object') {
+      for (const [caseName, caseValue] of Object.entries(action.cases)) {
+        if (caseValue?.actions && typeof caseValue.actions === 'object') {
+          collectInlineCodeActionsFromMap(caseValue.actions, [...path, caseName], found);
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+function extractInlineCodeActions(logicApp) {
+  const rootActions =
+    logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object'
+      ? logicApp.definition.actions
+      : logicApp?.actions && typeof logicApp.actions === 'object'
+        ? logicApp.actions
+        : null;
+
+  if (!rootActions) return [];
+
+  return collectInlineCodeActionsFromMap(rootActions);
+}
+
 export function App() {
   const initialState = useMemo(() => readInitialState(), []);
   const [actions, setActions] = useState(initialState.actions);
@@ -115,6 +183,8 @@ export function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('generate');
   const [generatedTemplate, setGeneratedTemplate] = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importWorkflowText, setImportWorkflowText] = useState('');
 
   useEffect(() => {
     StorageService.saveTestCases(actions, selectedActionName);
@@ -365,6 +435,83 @@ export function App() {
     setResultLines([`Deleted: ${deletedCase}`]);
   }
 
+  function parseWorkflowImport(text) {
+    const trimmedText = text.trim();
+    if (!trimmedText) {
+      return { importedActions: [], error: null };
+    }
+
+    try {
+      const logicApp = JSON.parse(trimmedText);
+      const importedActions = extractInlineCodeActions(logicApp);
+      return { importedActions, error: null };
+    } catch (error) {
+      return { importedActions: [], error: `Invalid Logic App JSON: ${formatError(error)}` };
+    }
+  }
+
+  function openImportModal() {
+    setImportModalOpen(true);
+  }
+
+  function closeImportModal() {
+    setImportModalOpen(false);
+  }
+
+  function handleImportWorkflow(preview, jsonText) {
+    if (!preview || preview.error) {
+      setResultLines([preview?.error || 'Invalid Logic App JSON.']);
+      return;
+    }
+
+    if (preview.importedActions.length === 0) {
+      setResultLines([
+        'No inline JavaScript actions were found. Expected actions of type "ExecuteJavaScriptCode".',
+      ]);
+      return;
+    }
+
+    if (
+      Object.keys(actions).length > 0 &&
+      !window.confirm('Replace the current inline actions with the imported workflow actions?')
+    ) {
+      return;
+    }
+
+    try {
+      const importedActions = preview.importedActions;
+
+      const nextActions = {};
+      const usedNames = new Set();
+
+      importedActions.forEach((action, index) => {
+        const baseName = sanitizeActionName(action.name, index);
+        const uniqueName = buildUniqueActionName(baseName, usedNames);
+        usedNames.add(uniqueName);
+        nextActions[uniqueName] = {
+          code: action.code,
+          selectedCaseName: StorageService.getDefaultCaseName(),
+          workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+        };
+      });
+
+      const firstActionName = Object.keys(nextActions)[0];
+      setActions(nextActions);
+      setSelectedActionName(firstActionName);
+      setImportWorkflowText(jsonText);
+      setImportModalOpen(false);
+      setGeneratedTemplate(null);
+      setModalOpen(false);
+      clearOutput();
+      loadAction(firstActionName, nextActions);
+      setResultLines([
+        `Imported ${importedActions.length} inline action${importedActions.length === 1 ? '' : 's'} from workflow JSON.`,
+      ]);
+    } catch (error) {
+      setResultLines([`Invalid Logic App JSON:\n${formatError(error)}`]);
+    }
+  }
+
   function openModal() {
     setGeneratedTemplate(null);
     setModalMode('generate');
@@ -586,7 +733,11 @@ export function App() {
 
   return (
     <div className="container">
-      <HeaderBar statusSummary={statusSummary} onRunAll={handleRunAll} />
+      <HeaderBar
+        statusSummary={statusSummary}
+        onImportWorkflow={openImportModal}
+        onRunAll={handleRunAll}
+      />
 
       {introVisible ? <IntroBanner onDismiss={() => setIntroVisible(false)} /> : null}
 
@@ -691,6 +842,16 @@ export function App() {
         onCreate={handleCreateCase}
         caseNames={caseNames}
         generatedTemplateReady={Boolean(generatedTemplate)}
+      />
+
+      <ImportWorkflowModal
+        open={importModalOpen}
+        value={importWorkflowText}
+        onChange={setImportWorkflowText}
+        onClose={closeImportModal}
+        onImport={handleImportWorkflow}
+        parseWorkflow={parseWorkflowImport}
+        existingActionCount={actionNames.length}
       />
     </div>
   );
