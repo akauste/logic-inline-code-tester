@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { assert: chaiAssert, expect: chaiExpect } = require('chai');
 const { runInlineSnippet, toJsonSafeValue } = require('./runInlineSnippet.js');
 
 // Define the default constants directly for testing
@@ -33,79 +34,6 @@ const DEFAULT_WORKFLOW_CONTEXT = `{
 
 const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
 
-function createAssertionError(message) {
-  const error = new Error(message);
-  error.name = 'AssertionError';
-  return error;
-}
-
-function isDeepEqual(left, right) {
-  if (Object.is(left, right)) return true;
-  if (typeof left !== typeof right) return false;
-  if (left === null || right === null) return left === right;
-  if (typeof left !== 'object') return false;
-  if (Array.isArray(left) !== Array.isArray(right)) return false;
-
-  if (Array.isArray(left)) {
-    if (left.length !== right.length) return false;
-    for (let index = 0; index < left.length; index += 1) {
-      if (!isDeepEqual(left[index], right[index])) return false;
-    }
-    return true;
-  }
-
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  if (leftKeys.length !== rightKeys.length) return false;
-  for (const key of leftKeys) {
-    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
-    if (!isDeepEqual(left[key], right[key])) return false;
-  }
-  return true;
-}
-
-function createAssert() {
-  const fail = (message) => {
-    throw createAssertionError(message || 'Assertion failed.');
-  };
-
-  return {
-    ok: (value, message) => {
-      if (!value) fail(message || `Expected value to be truthy, got ${String(value)}.`);
-    },
-    equal: (actual, expected, message) => {
-      if (actual !== expected) fail(message || `Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}.`);
-    },
-    deepEqual: (actual, expected, message) => {
-      if (!isDeepEqual(actual, expected)) {
-        fail(message || `Expected ${JSON.stringify(actual)} to deepEqual ${JSON.stringify(expected)}.`);
-      }
-    },
-  };
-}
-
-function createExpect() {
-  const fail = (message) => {
-    throw createAssertionError(message || 'Expectation failed.');
-  };
-
-  return (received) => ({
-    toBe: (expected) => {
-      if (received !== expected) fail(`Expected ${JSON.stringify(received)} to be ${JSON.stringify(expected)}.`);
-    },
-    toEqual: (expected) => {
-      if (!isDeepEqual(received, expected)) {
-        fail(`Expected ${JSON.stringify(received)} to equal ${JSON.stringify(expected)}.`);
-      }
-    },
-    toHaveLength: (expected) => {
-      if (received == null || typeof received.length !== 'number' || received.length !== expected) {
-        fail(`Expected value to have length ${expected}.`);
-      }
-    },
-  });
-}
-
 function evaluateAssertion({ assertionLibrary = 'expression', assertionText, resultValue, workflowContext }) {
   const text = (assertionText || '').trim();
   if (!text) {
@@ -116,7 +44,7 @@ function evaluateAssertion({ assertionLibrary = 'expression', assertionText, res
     const fn = new Function('result', 'workflowContext', 'assert', `"use strict";\n${text}\nreturn true;`);
     return {
       hasAssertion: true,
-      passed: fn(resultValue, workflowContext, createAssert()) !== false,
+      passed: fn(resultValue, workflowContext, chaiAssert) !== false,
       actual: true,
     };
   }
@@ -125,7 +53,7 @@ function evaluateAssertion({ assertionLibrary = 'expression', assertionText, res
     const fn = new Function('result', 'workflowContext', 'expect', `"use strict";\n${text}\nreturn true;`);
     return {
       hasAssertion: true,
-      passed: fn(resultValue, workflowContext, createExpect()) !== false,
+      passed: fn(resultValue, workflowContext, chaiExpect) !== false,
       actual: true,
     };
   }
@@ -219,7 +147,7 @@ test('expect library assertions can pass', () => {
   const resultValue = toJsonSafeValue(rawResult);
   const assertion = evaluateAssertion({
     assertionLibrary: 'expect',
-    assertionText: 'expect(result).toHaveLength(2);\nexpect(result[0]).toBe("first");',
+    assertionText: 'expect(result).to.have.lengthOf(2);\nexpect(result[0]).to.equal("first");',
     resultValue,
     workflowContext,
   });

@@ -9,35 +9,35 @@ const ASSERTION_STYLE_DOCS = [
     bullets: [
       'Available variables: result, workflowContext',
       'Best for quick comparisons and structural checks',
-      'Exports to Vitest as expect(passed).toBe(true)',
+      'Exports to Vitest as assert.equal(passed, true)',
     ],
     example: `Array.isArray(result) && result.length === 2`,
   },
   {
     id: 'assert',
-    title: 'Node Assert',
+    title: 'Chai Assert',
     description:
-      'Write one or more statements that call assert helpers, similar to node:assert/strict in test pipelines.',
+      'Write one or more statements with the full Chai assert API, so you can use the same style in exported tests.',
     bullets: [
       'Available variables: result, workflowContext, assert',
-      'Supports assert.ok, assert.equal, assert.deepEqual, assert.match',
-      'Exports to Vitest with import assert from "node:assert/strict"',
+      'Use the full Chai assert library and its broader assertion surface',
+      'Exports to Vitest with import { assert } from "chai"',
     ],
     example: `assert.equal(result.count, 2);
 assert.deepEqual(result.items, ['first', 'second']);`,
   },
   {
     id: 'expect',
-    title: 'Expect API',
+    title: 'Chai Expect',
     description:
-      'Write expectation-style statements that feel familiar if you already use Vitest or Jest-style matchers.',
+      'Write expectation-style statements with the full Chai expect API and export the same syntax into your pipeline tests.',
     bullets: [
       'Available variables: result, workflowContext, expect',
-      'Supports toBe, toEqual, toContain, toMatch, toBeTruthy, toBeFalsy, toHaveLength',
-      'Exports directly into a Vitest-ready test file',
+      'Use Chai chainable matchers instead of the limited built-in helper set',
+      'Exports directly into a Vitest-ready test file with chai imports',
     ],
-    example: `expect(result).toHaveLength(2);
-expect(result[0]).toBe('first');`,
+    example: `expect(result).to.have.lengthOf(2);
+expect(result[0]).to.equal('first');`,
   },
 ];
 

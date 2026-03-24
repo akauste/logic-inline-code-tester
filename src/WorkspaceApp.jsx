@@ -43,8 +43,8 @@ const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
 const DEFAULT_ASSERTION_LIBRARY = StorageService.getDefaultAssertionLibrary();
 const ASSERTION_LIBRARY_OPTIONS = [
   { value: 'expression', label: 'Boolean Expression' },
-  { value: 'assert', label: 'Node Assert' },
-  { value: 'expect', label: 'Expect API' },
+  { value: 'assert', label: 'Chai Assert' },
+  { value: 'expect', label: 'Chai Expect' },
 ];
 
 function formatError(err) {
@@ -672,8 +672,8 @@ export function App() {
 
   function buildVitestSuite(nextActions) {
     const lines = [];
-    lines.push(`import { describe, it, expect } from 'vitest';`);
-    lines.push(`import assert from 'node:assert/strict';`);
+    lines.push(`import { describe, it } from 'vitest';`);
+    lines.push(`import { assert, expect } from 'chai';`);
     lines.push('');
     lines.push('function runInlineSnippet(code, workflowContext) {');
     lines.push(`  const fn = new Function('workflowContext', '"use strict";\\n' + code);`);
@@ -719,7 +719,7 @@ export function App() {
           lines.push(indentBlock(entry.assertion, '        '));
           lines.push('      );');
           lines.push('    })();');
-          lines.push('    expect(passed).toBe(true);');
+          lines.push('    assert.equal(passed, true);');
         } else {
           lines.push(indentBlock(entry.assertion, '    '));
         }
@@ -751,7 +751,7 @@ export function App() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(downloadUrl);
-    setResultLines(['Exported a Vitest-ready test suite for the current inline actions and test cases.']);
+    setResultLines(['Exported a Vitest-ready test suite for the current inline actions and test cases using Chai.']);
   }
 
   function openModal() {
@@ -1075,12 +1075,12 @@ export function App() {
               </>
             ) : assertionLibrary === 'assert' ? (
               <>
-                Assertion body using <code>assert</code>, plus <code>result</code> and
+                Assertion body using Chai <code>assert</code>, plus <code>result</code> and
                 <code>workflowContext</code>.
               </>
             ) : (
               <>
-                Expect-style assertion body using <code>expect</code>, plus <code>result</code> and
+                Expect-style assertion body using Chai <code>expect</code>, plus <code>result</code> and
                 <code>workflowContext</code>.
               </>
             )}
