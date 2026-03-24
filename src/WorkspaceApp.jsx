@@ -3,6 +3,7 @@ import { ExecutionService } from '../public/services/ExecutionService.js';
 import { StorageService } from '../public/services/StorageService.js';
 import { ValidationService } from '../public/services/ValidationService.js';
 import { CodeMirrorEditor } from './components/CodeMirrorEditor.jsx';
+import { AssertionHelpModal } from './components/AssertionHelpModal.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
 import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
 import { IntroBanner } from './components/IntroBanner.jsx';
@@ -277,6 +278,7 @@ export function App() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importWorkflowText, setImportWorkflowText] = useState('');
   const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
+  const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
 
   useEffect(() => {
     StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
@@ -1032,20 +1034,31 @@ export function App() {
           </div>
 
           <div className="panel-title section-title">Assertion (paired with selected test case)</div>
-          <label className="field field-inline" htmlFor="assertionLibrary">
-            Assertion Library
-            <select
-              id="assertionLibrary"
-              value={assertionLibrary}
-              onChange={(event) => setAssertionLibrary(event.target.value)}
+          <div className="field field-inline">
+            <label htmlFor="assertionLibrary">Assertion Library</label>
+            <div className="field-row">
+              <div className="field-grow">
+                <select
+                  id="assertionLibrary"
+                  value={assertionLibrary}
+                  onChange={(event) => setAssertionLibrary(event.target.value)}
+                >
+                  {ASSERTION_LIBRARY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            <button
+              type="button"
+              className="assertion-help-trigger"
+              onClick={() => setAssertionHelpOpen(true)}
             >
-              {ASSERTION_LIBRARY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              Help
+            </button>
+            </div>
+          </div>
           <CodeMirrorEditor
             editorId="assertion"
             value={assertionText}
@@ -1129,6 +1142,8 @@ export function App() {
         parseWorkflow={parseWorkflowImport}
         existingActionCount={actionNames.length}
       />
+
+      <AssertionHelpModal open={assertionHelpOpen} onClose={() => setAssertionHelpOpen(false)} />
     </div>
   );
 }
