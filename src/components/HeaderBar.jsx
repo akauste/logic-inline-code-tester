@@ -1,12 +1,15 @@
 import React from 'react';
 
-export function HeaderBar({ statusSummary, onImportWorkflow, onRunAll }) {
+export function HeaderBar({ statusSummary, onExportWorkflow, onImportWorkflow, onRunAll, canExportWorkflow }) {
   return (
     <header>
       <h1>Inline JS Code Tester for Logic Apps Standard</h1>
       <div className="header-actions">
         <button type="button" className="btn-sm" onClick={onImportWorkflow}>
           Import Workflow
+        </button>
+        <button type="button" className="btn-sm" onClick={onExportWorkflow} disabled={!canExportWorkflow}>
+          Export Workflow
         </button>
         <button type="button" className="btn-sm primary" onClick={onRunAll}>
           Run Tests

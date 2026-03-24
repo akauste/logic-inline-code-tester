@@ -33,7 +33,14 @@ export class StorageService {
             ? parsed.selectedActionName
             : actionNames[0];
 
-        return { actions, selectedActionName };
+        return {
+          actions,
+          selectedActionName,
+          importedWorkflow:
+            parsed.importedWorkflow && typeof parsed.importedWorkflow === 'object'
+              ? parsed.importedWorkflow
+              : null,
+        };
       }
 
       const cases = parsed.workflowContextCases;
@@ -49,6 +56,7 @@ export class StorageService {
           },
         },
         selectedActionName: this.DEFAULT_ACTION_NAME,
+        importedWorkflow: null,
       };
     } catch {
       return null;
@@ -60,13 +68,14 @@ export class StorageService {
    * @param {object} actions - Action objects
    * @param {string} selectedActionName - Currently selected action name
    */
-  static saveTestCases(actions, selectedActionName) {
+  static saveTestCases(actions, selectedActionName, importedWorkflow = null) {
     try {
       localStorage.setItem(
         this.STORAGE_KEY,
         JSON.stringify({
           selectedActionName,
           actions,
+          importedWorkflow,
         })
       );
     } catch {
@@ -103,7 +112,7 @@ export class StorageService {
    * @param {any} entry - Raw action entry
    * @param {string} defaultCode - Default inline code
    * @param {string} defaultAssertion - Default assertion text
-   * @returns {{ code: string, selectedCaseName: string, workflowContextCases: object }}
+   * @returns {{ code: string, selectedCaseName: string, workflowContextCases: object, workflowPath: string[]|null }}
    */
   static normalizeActionEntry(entry, defaultCode = '', defaultAssertion = 'true') {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -111,6 +120,7 @@ export class StorageService {
         code: defaultCode,
         selectedCaseName: this.DEFAULT_CASE_NAME,
         workflowContextCases: this.createDefaultCases(defaultAssertion),
+        workflowPath: null,
       };
     }
 
@@ -129,6 +139,7 @@ export class StorageService {
       code: typeof entry.code === 'string' && entry.code ? entry.code : defaultCode,
       selectedCaseName,
       workflowContextCases,
+      workflowPath: Array.isArray(entry.workflowPath) ? entry.workflowPath.filter((part) => typeof part === 'string') : null,
     };
   }
 

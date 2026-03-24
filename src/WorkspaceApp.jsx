@@ -61,6 +61,7 @@ function readInitialState() {
           code: DEFAULT_CODE,
           selectedCaseName,
           workflowContextCases: cases,
+          workflowPath: null,
         },
       },
       selectedActionName: defaultActionName,
@@ -68,6 +69,7 @@ function readInitialState() {
       code: DEFAULT_CODE,
       workflowText: JSON.stringify(entry.workflowContext, null, 2),
       assertionText: entry.assertion,
+      importedWorkflow: null,
     };
   }
 
@@ -93,6 +95,7 @@ function readInitialState() {
     code: actionEntry.code || DEFAULT_CODE,
     workflowText: JSON.stringify(entry.workflowContext, null, 2),
     assertionText: entry.assertion,
+    importedWorkflow: stored.importedWorkflow || null,
   };
 }
 
@@ -127,6 +130,7 @@ function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = []) {
       found.push({
         name: path.join(' / '),
         code: action.inputs.code,
+        path,
       });
     }
 
@@ -167,6 +171,75 @@ function extractInlineCodeActions(logicApp) {
   return collectInlineCodeActionsFromMap(rootActions);
 }
 
+function getRootActions(logicApp) {
+  if (logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object') {
+    return logicApp.definition.actions;
+  }
+
+  if (logicApp?.actions && typeof logicApp.actions === 'object') {
+    return logicApp.actions;
+  }
+
+  return null;
+}
+
+function getChildActionMap(action, segment) {
+  if (!action || typeof action !== 'object') return null;
+
+  if (segment === 'Else') {
+    return action.else?.actions && typeof action.else.actions === 'object' ? action.else.actions : null;
+  }
+
+  if (segment === 'Default') {
+    return action.default?.actions && typeof action.default.actions === 'object' ? action.default.actions : null;
+  }
+
+  if (action.cases && typeof action.cases === 'object') {
+    const caseEntry = action.cases[segment];
+    if (caseEntry?.actions && typeof caseEntry.actions === 'object') {
+      return caseEntry.actions;
+    }
+  }
+
+  if (action.actions && typeof action.actions === 'object') {
+    return action.actions;
+  }
+
+  return null;
+}
+
+function updateWorkflowInlineCode(logicApp, workflowPath, code) {
+  const rootActions = getRootActions(logicApp);
+  if (!rootActions || !Array.isArray(workflowPath) || workflowPath.length === 0) {
+    return false;
+  }
+
+  let currentMap = rootActions;
+  for (let index = 0; index < workflowPath.length; index += 1) {
+    const segment = workflowPath[index];
+    const action = currentMap?.[segment];
+    if (!action || typeof action !== 'object') {
+      return false;
+    }
+
+    if (index === workflowPath.length - 1) {
+      if (!action.inputs || typeof action.inputs !== 'object') {
+        action.inputs = {};
+      }
+      action.inputs.code = code;
+      return true;
+    }
+
+    currentMap = getChildActionMap(action, workflowPath[index + 1]);
+    if (!currentMap) {
+      return false;
+    }
+    index += 1;
+  }
+
+  return false;
+}
+
 export function App() {
   const initialState = useMemo(() => readInitialState(), []);
   const [actions, setActions] = useState(initialState.actions);
@@ -185,10 +258,11 @@ export function App() {
   const [generatedTemplate, setGeneratedTemplate] = useState(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importWorkflowText, setImportWorkflowText] = useState('');
+  const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
 
   useEffect(() => {
-    StorageService.saveTestCases(actions, selectedActionName);
-  }, [actions, selectedActionName]);
+    StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
+  }, [actions, importedWorkflow, selectedActionName]);
 
   useEffect(() => {
     if (!selectedActionName || !selectedCaseName) return;
@@ -357,10 +431,12 @@ export function App() {
         code: DEFAULT_CODE,
         selectedCaseName: StorageService.getDefaultCaseName(),
         workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+        workflowPath: null,
       },
     };
 
     setActions(nextActions);
+    setImportedWorkflow(null);
     loadAction(actionName, nextActions);
     setResultLines([`Created action: ${actionName}`]);
   }
@@ -382,9 +458,11 @@ export function App() {
           code: DEFAULT_CODE,
           selectedCaseName: StorageService.getDefaultCaseName(),
           workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+          workflowPath: null,
         },
       };
       setActions(defaults);
+      setImportedWorkflow(null);
       loadAction(defaultActionName, defaults);
     } else {
       setActions(nextActions);
@@ -492,6 +570,7 @@ export function App() {
           code: action.code,
           selectedCaseName: StorageService.getDefaultCaseName(),
           workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+          workflowPath: action.path,
         };
       });
 
@@ -499,6 +578,7 @@ export function App() {
       setActions(nextActions);
       setSelectedActionName(firstActionName);
       setImportWorkflowText(jsonText);
+      setImportedWorkflow(JSON.parse(jsonText));
       setImportModalOpen(false);
       setGeneratedTemplate(null);
       setModalOpen(false);
@@ -510,6 +590,56 @@ export function App() {
     } catch (error) {
       setResultLines([`Invalid Logic App JSON:\n${formatError(error)}`]);
     }
+  }
+
+  function handleExportWorkflow() {
+    if (!importedWorkflow) {
+      setResultLines(['Import a Logic App workflow first before exporting an updated workflow JSON.']);
+      return;
+    }
+
+    let nextActions;
+    try {
+      nextActions = syncSelectedAction();
+    } catch (error) {
+      setResultLines([`Invalid workflowContext JSON in selected action:\n${formatError(error)}`]);
+      return;
+    }
+
+    const exportedWorkflow = cloneJson(importedWorkflow);
+    const missingPaths = [];
+
+    for (const [actionName, actionEntryRaw] of Object.entries(nextActions)) {
+      const actionEntry = StorageService.normalizeActionEntry(actionEntryRaw, DEFAULT_CODE, DEFAULT_ASSERTION);
+      if (!Array.isArray(actionEntry.workflowPath) || actionEntry.workflowPath.length === 0) {
+        continue;
+      }
+
+      const updated = updateWorkflowInlineCode(exportedWorkflow, actionEntry.workflowPath, actionEntry.code);
+      if (!updated) {
+        missingPaths.push(actionName);
+      }
+    }
+
+    const jsonText = JSON.stringify(exportedWorkflow, null, 2);
+    const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = 'logic-app-workflow.updated.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+
+    if (missingPaths.length > 0) {
+      setResultLines([
+        `Exported workflow JSON, but ${missingPaths.length} action path${missingPaths.length === 1 ? '' : 's'} could not be updated: ${missingPaths.join(', ')}`,
+      ]);
+      return;
+    }
+
+    setResultLines(['Exported workflow JSON with updated inline JavaScript actions.']);
   }
 
   function openModal() {
@@ -734,6 +864,8 @@ export function App() {
   return (
     <div className="container">
       <HeaderBar
+        canExportWorkflow={Boolean(importedWorkflow)}
+        onExportWorkflow={handleExportWorkflow}
         statusSummary={statusSummary}
         onImportWorkflow={openImportModal}
         onRunAll={handleRunAll}
