@@ -4,10 +4,11 @@
  */
 export class StorageService {
   static STORAGE_KEY = 'logicInlineCodeTester.workflowContexts.v1';
+  static DEFAULT_ACTION_NAME = 'Inline Code';
   static DEFAULT_CASE_NAME = 'default';
 
   /**
-   * Load test cases from localStorage
+   * Load action suites from localStorage
    * @returns {object|null} Loaded data or null if not found/invalid
    */
   static loadTestCases() {
@@ -18,29 +19,54 @@ export class StorageService {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return null;
 
+      if (parsed.actions && typeof parsed.actions === 'object') {
+        const actions = {};
+        for (const [actionName, actionEntry] of Object.entries(parsed.actions)) {
+          actions[actionName] = this.normalizeActionEntry(actionEntry);
+        }
+
+        const actionNames = Object.keys(actions);
+        if (actionNames.length === 0) return null;
+
+        const selectedActionName =
+          parsed.selectedActionName && actionNames.includes(parsed.selectedActionName)
+            ? parsed.selectedActionName
+            : actionNames[0];
+
+        return { actions, selectedActionName };
+      }
+
       const cases = parsed.workflowContextCases;
       const selected = parsed.selectedWorkflowContextName;
-
       if (!cases || typeof cases !== 'object') return null;
 
-      return { cases, selected };
+      return {
+        actions: {
+          [this.DEFAULT_ACTION_NAME]: {
+            code: '',
+            selectedCaseName: selected || this.DEFAULT_CASE_NAME,
+            workflowContextCases: cases,
+          },
+        },
+        selectedActionName: this.DEFAULT_ACTION_NAME,
+      };
     } catch {
       return null;
     }
   }
 
   /**
-   * Save test cases to localStorage
-   * @param {object} cases - Test case objects
-   * @param {string} selectedName - Currently selected case name
+   * Save action suites to localStorage
+   * @param {object} actions - Action objects
+   * @param {string} selectedActionName - Currently selected action name
    */
-  static saveTestCases(cases, selectedName) {
+  static saveTestCases(actions, selectedActionName) {
     try {
       localStorage.setItem(
         this.STORAGE_KEY,
         JSON.stringify({
-          selectedWorkflowContextName: selectedName,
-          workflowContextCases: cases
+          selectedActionName,
+          actions,
         })
       );
     } catch {
@@ -70,6 +96,40 @@ export class StorageService {
     }
 
     return { workflowContext: entry, assertion: defaultAssertion };
+  }
+
+  /**
+   * Normalize an action entry for backward compatibility.
+   * @param {any} entry - Raw action entry
+   * @param {string} defaultCode - Default inline code
+   * @param {string} defaultAssertion - Default assertion text
+   * @returns {{ code: string, selectedCaseName: string, workflowContextCases: object }}
+   */
+  static normalizeActionEntry(entry, defaultCode = '', defaultAssertion = 'true') {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return {
+        code: defaultCode,
+        selectedCaseName: this.DEFAULT_CASE_NAME,
+        workflowContextCases: this.createDefaultCases(defaultAssertion),
+      };
+    }
+
+    const workflowContextCases =
+      entry.workflowContextCases && typeof entry.workflowContextCases === 'object'
+        ? entry.workflowContextCases
+        : this.createDefaultCases(defaultAssertion);
+
+    const caseNames = Object.keys(workflowContextCases);
+    const selectedCaseName =
+      typeof entry.selectedCaseName === 'string' && caseNames.includes(entry.selectedCaseName)
+        ? entry.selectedCaseName
+        : caseNames[0] || this.DEFAULT_CASE_NAME;
+
+    return {
+      code: typeof entry.code === 'string' && entry.code ? entry.code : defaultCode,
+      selectedCaseName,
+      workflowContextCases,
+    };
   }
 
   /**
@@ -117,5 +177,13 @@ export class StorageService {
    */
   static getDefaultCaseName() {
     return this.DEFAULT_CASE_NAME;
+  }
+
+  /**
+   * Get default action name
+   * @returns {string} Default action name
+   */
+  static getDefaultActionName() {
+    return this.DEFAULT_ACTION_NAME;
   }
 }
