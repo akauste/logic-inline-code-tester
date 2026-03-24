@@ -499,6 +499,10 @@ button.danger:hover {
   flex-direction: column;
 }
 
+.modal-content-wide {
+  max-width: 880px;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -554,6 +558,29 @@ button.danger:hover {
   outline: none;
   font-size: 13px;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
+}
+
+.modal-textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid rgba(90, 166, 255, 0.28);
+  background: rgba(8, 14, 31, 0.82);
+  color: var(--text);
+  padding: 14px;
+  outline: none;
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.modal-textarea:focus {
+  border-color: rgba(90, 166, 255, 0.75);
+  box-shadow: 0 0 0 3px rgba(90, 166, 255, 0.12);
+}
+
+.modal-textarea-large {
+  min-height: 320px;
 }
 
 .modal-input:focus {
@@ -650,6 +677,20 @@ button.danger:hover {
   background: rgba(0, 0, 0, 0.1);
 }
 
+.btn-primary:disabled,
+.btn-secondary:disabled,
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary:disabled:hover,
+.btn-secondary:disabled:hover,
+button:disabled:hover {
+  background: inherit;
+  border-color: inherit;
+}
+
 .btn-primary {
   padding: 10px 16px;
   border-radius: 8px;
@@ -680,5 +721,74 @@ button.danger:hover {
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
+}
+
+.import-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.import-preview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.import-preview-item,
+.import-preview-state {
+  border: 1px solid rgba(90, 166, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(8, 14, 31, 0.72);
+  padding: 12px 14px;
+}
+
+.import-preview-state {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.import-preview-state-error {
+  border-color: rgba(255, 107, 107, 0.32);
+  background: rgba(255, 107, 107, 0.08);
+  color: #ffd0d0;
+  white-space: pre-wrap;
+}
+
+.import-preview-item-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #dbeafe;
+}
+
+.import-preview-item-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 700px) {
+  .modal-content-wide {
+    width: calc(100% - 24px);
+    max-width: none;
+  }
+
+  .modal-textarea-large {
+    min-height: 240px;
+  }
+
+  .modal-footer {
+    flex-direction: column-reverse;
+  }
+
+  .modal-footer button {
+    width: 100%;
+  }
 }
 

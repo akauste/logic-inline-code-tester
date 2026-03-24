@@ -4,6 +4,7 @@ import { StorageService } from '../public/services/StorageService.js';
 import { ValidationService } from '../public/services/ValidationService.js';
 import { CodeMirrorEditor } from './components/CodeMirrorEditor.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
+import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
 import { IntroBanner } from './components/IntroBanner.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
@@ -50,27 +51,46 @@ function formatError(err) {
 function readInitialState() {
   const stored = StorageService.loadTestCases();
   if (!stored) {
+    const defaultActionName = StorageService.getDefaultActionName();
     const cases = StorageService.createDefaultCases(DEFAULT_ASSERTION);
-    const selectedCase = StorageService.getDefaultCaseName();
-    const entry = StorageService.normalizeCaseEntry(cases[selectedCase], DEFAULT_ASSERTION);
+    const selectedCaseName = StorageService.getDefaultCaseName();
+    const entry = StorageService.normalizeCaseEntry(cases[selectedCaseName], DEFAULT_ASSERTION);
     return {
-      cases,
-      selectedCase,
+      actions: {
+        [defaultActionName]: {
+          code: DEFAULT_CODE,
+          selectedCaseName,
+          workflowContextCases: cases,
+        },
+      },
+      selectedActionName: defaultActionName,
+      selectedCaseName,
+      code: DEFAULT_CODE,
       workflowText: JSON.stringify(entry.workflowContext, null, 2),
       assertionText: entry.assertion,
     };
   }
 
-  const caseNames = Object.keys(stored.cases);
-  const selectedCase =
-    stored.selected && caseNames.includes(stored.selected)
-      ? stored.selected
-      : caseNames[0] || StorageService.getDefaultCaseName();
-  const entry = StorageService.normalizeCaseEntry(stored.cases[selectedCase], DEFAULT_ASSERTION);
+  const actionNames = Object.keys(stored.actions);
+  const selectedActionName =
+    stored.selectedActionName && actionNames.includes(stored.selectedActionName)
+      ? stored.selectedActionName
+      : actionNames[0] || StorageService.getDefaultActionName();
+  const actionEntry = StorageService.normalizeActionEntry(
+    stored.actions[selectedActionName],
+    DEFAULT_CODE,
+    DEFAULT_ASSERTION
+  );
+  const entry = StorageService.normalizeCaseEntry(
+    actionEntry.workflowContextCases[actionEntry.selectedCaseName],
+    DEFAULT_ASSERTION
+  );
 
   return {
-    cases: stored.cases,
-    selectedCase,
+    actions: stored.actions,
+    selectedActionName,
+    selectedCaseName: actionEntry.selectedCaseName,
+    code: actionEntry.code || DEFAULT_CODE,
     workflowText: JSON.stringify(entry.workflowContext, null, 2),
     assertionText: entry.assertion,
   };
@@ -80,11 +100,79 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function sanitizeActionName(name, fallbackIndex) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  return trimmed || `Inline Action ${fallbackIndex + 1}`;
+}
+
+function buildUniqueActionName(baseName, existingNames) {
+  if (!existingNames.has(baseName)) return baseName;
+
+  let suffix = 2;
+  while (existingNames.has(`${baseName} (${suffix})`)) {
+    suffix += 1;
+  }
+
+  return `${baseName} (${suffix})`;
+}
+
+function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = []) {
+  if (!actionMap || typeof actionMap !== 'object') return found;
+
+  for (const [actionName, action] of Object.entries(actionMap)) {
+    if (!action || typeof action !== 'object') continue;
+
+    const path = [...prefix, actionName];
+    if (action.type === 'ExecuteJavaScriptCode' && typeof action.inputs?.code === 'string') {
+      found.push({
+        name: path.join(' / '),
+        code: action.inputs.code,
+      });
+    }
+
+    if (action.actions && typeof action.actions === 'object') {
+      collectInlineCodeActionsFromMap(action.actions, path, found);
+    }
+
+    if (action.else?.actions && typeof action.else.actions === 'object') {
+      collectInlineCodeActionsFromMap(action.else.actions, [...path, 'Else'], found);
+    }
+
+    if (action.default?.actions && typeof action.default.actions === 'object') {
+      collectInlineCodeActionsFromMap(action.default.actions, [...path, 'Default'], found);
+    }
+
+    if (action.cases && typeof action.cases === 'object') {
+      for (const [caseName, caseValue] of Object.entries(action.cases)) {
+        if (caseValue?.actions && typeof caseValue.actions === 'object') {
+          collectInlineCodeActionsFromMap(caseValue.actions, [...path, caseName], found);
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+function extractInlineCodeActions(logicApp) {
+  const rootActions =
+    logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object'
+      ? logicApp.definition.actions
+      : logicApp?.actions && typeof logicApp.actions === 'object'
+        ? logicApp.actions
+        : null;
+
+  if (!rootActions) return [];
+
+  return collectInlineCodeActionsFromMap(rootActions);
+}
+
 export function App() {
   const initialState = useMemo(() => readInitialState(), []);
-  const [code, setCode] = useState(DEFAULT_CODE);
-  const [cases, setCases] = useState(initialState.cases);
-  const [selectedCase, setSelectedCase] = useState(initialState.selectedCase);
+  const [actions, setActions] = useState(initialState.actions);
+  const [selectedActionName, setSelectedActionName] = useState(initialState.selectedActionName);
+  const [code, setCode] = useState(initialState.code || DEFAULT_CODE);
+  const [selectedCaseName, setSelectedCaseName] = useState(initialState.selectedCaseName);
   const [workflowText, setWorkflowText] = useState(initialState.workflowText || DEFAULT_WORKFLOW_CONTEXT);
   const [assertionText, setAssertionText] = useState(initialState.assertionText || DEFAULT_ASSERTION);
   const [timeoutMs, setTimeoutMs] = useState(1000);
@@ -95,57 +183,105 @@ export function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('generate');
   const [generatedTemplate, setGeneratedTemplate] = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importWorkflowText, setImportWorkflowText] = useState('');
 
   useEffect(() => {
-    StorageService.saveTestCases(cases, selectedCase);
-  }, [cases, selectedCase]);
+    StorageService.saveTestCases(actions, selectedActionName);
+  }, [actions, selectedActionName]);
 
   useEffect(() => {
-    if (!selectedCase) return;
+    if (!selectedActionName || !selectedCaseName) return;
 
-    try {
-      const parsedWorkflowContext = JSON.parse(workflowText || '{}');
-      setCases((currentCases) => {
-        const currentEntry = StorageService.normalizeCaseEntry(currentCases[selectedCase], DEFAULT_ASSERTION);
+    setActions((currentActions) => {
+      const currentAction = StorageService.normalizeActionEntry(
+        currentActions[selectedActionName],
+        DEFAULT_CODE,
+        DEFAULT_ASSERTION
+      );
+
+      const nextAction = {
+        ...currentAction,
+        code,
+        selectedCaseName,
+      };
+
+      try {
+        const parsedWorkflowContext = JSON.parse(workflowText || '{}');
+        const currentEntry = StorageService.normalizeCaseEntry(
+          currentAction.workflowContextCases[selectedCaseName],
+          DEFAULT_ASSERTION
+        );
         const nextAssertion = assertionText || DEFAULT_ASSERTION;
         const currentWorkflowJson = JSON.stringify(currentEntry.workflowContext);
         const nextWorkflowJson = JSON.stringify(parsedWorkflowContext);
 
-        if (currentWorkflowJson === nextWorkflowJson && currentEntry.assertion === nextAssertion) {
-          return currentCases;
+        if (currentWorkflowJson !== nextWorkflowJson || currentEntry.assertion !== nextAssertion) {
+          nextAction.workflowContextCases = {
+            ...currentAction.workflowContextCases,
+            [selectedCaseName]: {
+              workflowContext: parsedWorkflowContext,
+              assertion: nextAssertion,
+            },
+          };
         }
+      } catch {
+        // Keep the last valid saved case while the editor contains invalid JSON.
+      }
 
-        return {
-          ...currentCases,
-          [selectedCase]: {
-            workflowContext: parsedWorkflowContext,
-            assertion: nextAssertion,
-          },
-        };
-      });
-    } catch {
-      // Keep the last valid saved case while the editor contains invalid JSON.
-    }
-  }, [assertionText, selectedCase, workflowText]);
+      const sameCode = currentAction.code === nextAction.code;
+      const sameSelectedCase = currentAction.selectedCaseName === nextAction.selectedCaseName;
+      const sameCases =
+        JSON.stringify(currentAction.workflowContextCases) === JSON.stringify(nextAction.workflowContextCases);
+      if (sameCode && sameSelectedCase && sameCases) {
+        return currentActions;
+      }
+
+      return {
+        ...currentActions,
+        [selectedActionName]: nextAction,
+      };
+    });
+  }, [assertionText, code, selectedActionName, selectedCaseName, workflowText]);
+
+  const currentAction = useMemo(
+    () =>
+      StorageService.normalizeActionEntry(actions[selectedActionName], DEFAULT_CODE, DEFAULT_ASSERTION),
+    [actions, selectedActionName]
+  );
+
+  const actionNames = useMemo(
+    () => Object.keys(actions).sort((left, right) => left.localeCompare(right)),
+    [actions]
+  );
 
   const caseNames = useMemo(
-    () => Object.keys(cases).sort((left, right) => left.localeCompare(right)),
-    [cases]
+    () => Object.keys(currentAction.workflowContextCases).sort((left, right) => left.localeCompare(right)),
+    [currentAction]
   );
 
   function clearOutput() {
     setResultLines([]);
     setConsoleText('');
+    setStatusSummary(null);
   }
 
-  function loadCaseIntoEditors(caseName, nextCases = cases) {
+  function loadCaseIntoEditors(caseName, nextCases = currentAction.workflowContextCases) {
     const entry = StorageService.normalizeCaseEntry(nextCases[caseName], DEFAULT_ASSERTION);
     setWorkflowText(JSON.stringify(entry.workflowContext, null, 2));
     setAssertionText(entry.assertion || DEFAULT_ASSERTION);
   }
 
-  function selectCase(caseName, nextCases = cases) {
-    setSelectedCase(caseName);
+  function loadAction(actionName, nextActions = actions) {
+    const actionEntry = StorageService.normalizeActionEntry(nextActions[actionName], DEFAULT_CODE, DEFAULT_ASSERTION);
+    setSelectedActionName(actionName);
+    setCode(actionEntry.code || DEFAULT_CODE);
+    setSelectedCaseName(actionEntry.selectedCaseName);
+    loadCaseIntoEditors(actionEntry.selectedCaseName, actionEntry.workflowContextCases);
+  }
+
+  function selectCase(caseName, nextCases = currentAction.workflowContextCases) {
+    setSelectedCaseName(caseName);
     loadCaseIntoEditors(caseName, nextCases);
   }
 
@@ -172,19 +308,27 @@ export function App() {
     });
   }
 
-  function syncSelectedCase() {
-    if (!selectedCase) return cases;
+  function syncSelectedAction() {
+    if (!selectedActionName || !selectedCaseName) return actions;
 
-    const nextCases = {
-      ...cases,
-      [selectedCase]: {
-        workflowContext: JSON.parse(workflowText || '{}'),
-        assertion: assertionText || DEFAULT_ASSERTION,
+    const nextActions = {
+      ...actions,
+      [selectedActionName]: {
+        ...currentAction,
+        code,
+        selectedCaseName,
+        workflowContextCases: {
+          ...currentAction.workflowContextCases,
+          [selectedCaseName]: {
+            workflowContext: JSON.parse(workflowText || '{}'),
+            assertion: assertionText || DEFAULT_ASSERTION,
+          },
+        },
       },
     };
 
-    setCases(nextCases);
-    return nextCases;
+    setActions(nextActions);
+    return nextActions;
   }
 
   function handleCaseChange(caseName) {
@@ -192,27 +336,180 @@ export function App() {
     selectCase(caseName);
   }
 
+  function handleActionChange(actionName) {
+    clearOutput();
+    loadAction(actionName);
+  }
+
+  function handleCreateAction() {
+    const name = window.prompt('Action name');
+    const actionName = name ? name.trim() : '';
+    if (!actionName) return;
+
+    if (Object.prototype.hasOwnProperty.call(actions, actionName)) {
+      setResultLines([`An action named "${actionName}" already exists.`]);
+      return;
+    }
+
+    const nextActions = {
+      ...actions,
+      [actionName]: {
+        code: DEFAULT_CODE,
+        selectedCaseName: StorageService.getDefaultCaseName(),
+        workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+      },
+    };
+
+    setActions(nextActions);
+    loadAction(actionName, nextActions);
+    setResultLines([`Created action: ${actionName}`]);
+  }
+
+  function handleDeleteAction() {
+    clearOutput();
+    if (!selectedActionName) return;
+    if (!window.confirm(`Delete inline code action "${selectedActionName}"?`)) return;
+
+    const nextActions = { ...actions };
+    const deletedAction = selectedActionName;
+    delete nextActions[deletedAction];
+
+    const remaining = Object.keys(nextActions).sort((left, right) => left.localeCompare(right));
+    if (remaining.length === 0) {
+      const defaultActionName = StorageService.getDefaultActionName();
+      const defaults = {
+        [defaultActionName]: {
+          code: DEFAULT_CODE,
+          selectedCaseName: StorageService.getDefaultCaseName(),
+          workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+        },
+      };
+      setActions(defaults);
+      loadAction(defaultActionName, defaults);
+    } else {
+      setActions(nextActions);
+      loadAction(remaining[0], nextActions);
+    }
+
+    setResultLines([`Deleted action: ${deletedAction}`]);
+  }
+
   function handleDeleteCase() {
     clearOutput();
-    if (!selectedCase) return;
-    if (!window.confirm(`Delete workflowContext test case "${selectedCase}"?`)) return;
+    if (!selectedCaseName) return;
+    if (!window.confirm(`Delete workflowContext test case "${selectedCaseName}"?`)) return;
 
-    const nextCases = { ...cases };
-    const deletedCase = selectedCase;
+    const nextCases = { ...currentAction.workflowContextCases };
+    const deletedCase = selectedCaseName;
     delete nextCases[deletedCase];
 
     const remaining = Object.keys(nextCases).sort((left, right) => left.localeCompare(right));
+    const nextActions = {
+      ...actions,
+      [selectedActionName]: {
+        ...currentAction,
+        workflowContextCases: nextCases,
+      },
+    };
+
     if (remaining.length === 0) {
       const defaults = StorageService.createDefaultCases(DEFAULT_ASSERTION);
-      const defaultCase = StorageService.getDefaultCaseName();
-      setCases(defaults);
-      selectCase(defaultCase, defaults);
+      const defaultCaseName = StorageService.getDefaultCaseName();
+      nextActions[selectedActionName] = {
+        ...currentAction,
+        selectedCaseName: defaultCaseName,
+        workflowContextCases: defaults,
+      };
+      setActions(nextActions);
+      selectCase(defaultCaseName, defaults);
     } else {
-      setCases(nextCases);
+      nextActions[selectedActionName] = {
+        ...currentAction,
+        selectedCaseName: remaining[0],
+        workflowContextCases: nextCases,
+      };
+      setActions(nextActions);
       selectCase(remaining[0], nextCases);
     }
 
     setResultLines([`Deleted: ${deletedCase}`]);
+  }
+
+  function parseWorkflowImport(text) {
+    const trimmedText = text.trim();
+    if (!trimmedText) {
+      return { importedActions: [], error: null };
+    }
+
+    try {
+      const logicApp = JSON.parse(trimmedText);
+      const importedActions = extractInlineCodeActions(logicApp);
+      return { importedActions, error: null };
+    } catch (error) {
+      return { importedActions: [], error: `Invalid Logic App JSON: ${formatError(error)}` };
+    }
+  }
+
+  function openImportModal() {
+    setImportModalOpen(true);
+  }
+
+  function closeImportModal() {
+    setImportModalOpen(false);
+  }
+
+  function handleImportWorkflow(preview, jsonText) {
+    if (!preview || preview.error) {
+      setResultLines([preview?.error || 'Invalid Logic App JSON.']);
+      return;
+    }
+
+    if (preview.importedActions.length === 0) {
+      setResultLines([
+        'No inline JavaScript actions were found. Expected actions of type "ExecuteJavaScriptCode".',
+      ]);
+      return;
+    }
+
+    if (
+      Object.keys(actions).length > 0 &&
+      !window.confirm('Replace the current inline actions with the imported workflow actions?')
+    ) {
+      return;
+    }
+
+    try {
+      const importedActions = preview.importedActions;
+
+      const nextActions = {};
+      const usedNames = new Set();
+
+      importedActions.forEach((action, index) => {
+        const baseName = sanitizeActionName(action.name, index);
+        const uniqueName = buildUniqueActionName(baseName, usedNames);
+        usedNames.add(uniqueName);
+        nextActions[uniqueName] = {
+          code: action.code,
+          selectedCaseName: StorageService.getDefaultCaseName(),
+          workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
+        };
+      });
+
+      const firstActionName = Object.keys(nextActions)[0];
+      setActions(nextActions);
+      setSelectedActionName(firstActionName);
+      setImportWorkflowText(jsonText);
+      setImportModalOpen(false);
+      setGeneratedTemplate(null);
+      setModalOpen(false);
+      clearOutput();
+      loadAction(firstActionName, nextActions);
+      setResultLines([
+        `Imported ${importedActions.length} inline action${importedActions.length === 1 ? '' : 's'} from workflow JSON.`,
+      ]);
+    } catch (error) {
+      setResultLines([`Invalid Logic App JSON:\n${formatError(error)}`]);
+    }
   }
 
   function openModal() {
@@ -257,7 +554,7 @@ export function App() {
       return;
     }
 
-    if (Object.prototype.hasOwnProperty.call(cases, name)) {
+    if (Object.prototype.hasOwnProperty.call(currentAction.workflowContextCases, name)) {
       setResultLines([`A test case with name "${name}" already exists. Choose a different name.`]);
       return;
     }
@@ -276,20 +573,30 @@ export function App() {
         setResultLines(['Please select a test case to duplicate.']);
         return;
       }
-      const entry = StorageService.normalizeCaseEntry(cases[sourceCase], DEFAULT_ASSERTION);
+      const entry = StorageService.normalizeCaseEntry(
+        currentAction.workflowContextCases[sourceCase],
+        DEFAULT_ASSERTION
+      );
       workflowContext = cloneJson(entry.workflowContext);
       assertion = entry.assertion || DEFAULT_ASSERTION;
     }
 
     const nextCases = {
-      ...cases,
+      ...currentAction.workflowContextCases,
       [name]: {
         workflowContext,
         assertion,
       },
     };
 
-    setCases(nextCases);
+    setActions({
+      ...actions,
+      [selectedActionName]: {
+        ...currentAction,
+        selectedCaseName: name,
+        workflowContextCases: nextCases,
+      },
+    });
     selectCase(name, nextCases);
     setResultLines([`Created test case: ${name}`]);
     closeModal();
@@ -328,7 +635,7 @@ export function App() {
     if (assertionOutcome?.hasAssertion) {
       lines.push({
         kind: assertionOutcome.passed ? 'pass' : 'fail',
-        text: `Assertion (${selectedCase}): ${assertionOutcome.passed ? 'PASS' : 'FAIL'}`,
+        text: `Assertion (${selectedCaseName}): ${assertionOutcome.passed ? 'PASS' : 'FAIL'}`,
       });
       lines.push({
         kind: assertionOutcome.passed ? 'pass' : 'fail',
@@ -347,11 +654,11 @@ export function App() {
   async function handleRunAll() {
     clearOutput();
 
-    let nextCases;
+    let nextActions;
     try {
-      nextCases = syncSelectedCase();
+      nextActions = syncSelectedAction();
     } catch (error) {
-      setResultLines([`Invalid workflowContext JSON in selected case:\n${formatError(error)}`]);
+      setResultLines([`Invalid workflowContext JSON in selected action:\n${formatError(error)}`]);
       return;
     }
 
@@ -361,10 +668,19 @@ export function App() {
     let failCount = 0;
     let errorCount = 0;
 
-    for (const caseName of Object.keys(nextCases).sort((left, right) => left.localeCompare(right))) {
-      const entry = StorageService.normalizeCaseEntry(nextCases[caseName], DEFAULT_ASSERTION);
+    const actionEntry = StorageService.normalizeActionEntry(
+      nextActions[selectedActionName],
+      DEFAULT_CODE,
+      DEFAULT_ASSERTION
+    );
+
+    for (const caseName of Object.keys(actionEntry.workflowContextCases).sort((left, right) => left.localeCompare(right))) {
+      const entry = StorageService.normalizeCaseEntry(
+        actionEntry.workflowContextCases[caseName],
+        DEFAULT_ASSERTION
+      );
       const { runData, validationText, assertionOutcome } = await ExecutionService.execute(
-        code,
+        actionEntry.code,
         entry.workflowContext,
         entry.assertion,
         Number(timeoutMs)
@@ -401,12 +717,12 @@ export function App() {
       }
     }
 
-    const total = Object.keys(nextCases).length;
+    const total = Object.keys(actionEntry.workflowContextCases).length;
     const allPassed = failCount === 0 && errorCount === 0;
     setResultLines([
       {
         kind: allPassed ? 'pass' : 'fail',
-        text: `Run All completed: ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`,
+        text: `Run All completed for ${selectedActionName}: ${passCount} passed, ${failCount} failed, ${errorCount} errors, ${total} total.`,
       },
       '---',
       ...summaryLines,
@@ -417,12 +733,28 @@ export function App() {
 
   return (
     <div className="container">
-      <HeaderBar statusSummary={statusSummary} onRunAll={handleRunAll} />
+      <HeaderBar
+        statusSummary={statusSummary}
+        onImportWorkflow={openImportModal}
+        onRunAll={handleRunAll}
+      />
 
       {introVisible ? <IntroBanner onDismiss={() => setIntroVisible(false)} /> : null}
 
       <section className="grid">
         <div className="panel">
+          <TestCaseManager
+            itemNames={actionNames}
+            selectedItem={selectedActionName}
+            onSelectItem={handleActionChange}
+            onCreateItem={handleCreateAction}
+            onDeleteItem={handleDeleteAction}
+            title="Inline Actions"
+            caption="Each action keeps its own code and test suite."
+            selectLabel="Select inline code action"
+            createLabel="Add Action"
+            deleteLabel="Delete Action"
+          />
           <div className="panel-title">Inline Code</div>
           <CodeMirrorEditor editorId="code" value={code} onChange={setCode} />
           <div className="hint">
@@ -432,11 +764,11 @@ export function App() {
 
         <div className="panel">
           <TestCaseManager
-            caseNames={caseNames}
-            selectedCase={selectedCase}
-            onSelectCase={handleCaseChange}
-            onCreateCase={openModal}
-            onDeleteCase={handleDeleteCase}
+            itemNames={caseNames}
+            selectedItem={selectedCaseName}
+            onSelectItem={handleCaseChange}
+            onCreateItem={openModal}
+            onDeleteItem={handleDeleteCase}
           />
 
           <div className="panel-title">workflowContext JSON</div>
@@ -510,6 +842,16 @@ export function App() {
         onCreate={handleCreateCase}
         caseNames={caseNames}
         generatedTemplateReady={Boolean(generatedTemplate)}
+      />
+
+      <ImportWorkflowModal
+        open={importModalOpen}
+        value={importWorkflowText}
+        onChange={setImportWorkflowText}
+        onClose={closeImportModal}
+        onImport={handleImportWorkflow}
+        parseWorkflow={parseWorkflowImport}
+        existingActionCount={actionNames.length}
       />
     </div>
   );
