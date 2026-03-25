@@ -319,6 +319,7 @@ export function App() {
   }, [workflowText]);
 
   const mockRequirements = useMemo(() => summarizeMockRequirements(code), [code]);
+  const isImportedWorkflowMode = Boolean(importedWorkflow);
 
   function clearOutput() {
     setResultLines([]);
@@ -404,6 +405,11 @@ export function App() {
   }
 
   function handleCreateAction() {
+    if (isImportedWorkflowMode) {
+      setResultLines(['Inline actions are fixed in imported workflow mode. Import a different workflow to change the action list.']);
+      return;
+    }
+
     const name = window.prompt('Action name');
     const actionName = name ? name.trim() : '';
     if (!actionName) return;
@@ -430,6 +436,11 @@ export function App() {
   }
 
   function handleDeleteAction() {
+    if (isImportedWorkflowMode) {
+      setResultLines(['Inline actions are fixed in imported workflow mode. Import a different workflow to change the action list.']);
+      return;
+    }
+
     clearOutput();
     if (!selectedActionName) return;
     if (!window.confirm(`Delete inline code action "${selectedActionName}"?`)) return;
@@ -972,10 +983,17 @@ export function App() {
             onCreateItem={handleCreateAction}
             onDeleteItem={handleDeleteAction}
             title="Inline Actions"
-            caption="Each action keeps its own code and test suite."
+            caption={
+              isImportedWorkflowMode
+                ? 'Imported workflow mode: the action list is fixed to preserve safe workflow export.'
+                : 'Playground mode: add or remove standalone inline actions freely.'
+            }
             selectLabel="Select inline code action"
             createLabel="Add Action"
             deleteLabel="Delete Action"
+            allowCreate={!isImportedWorkflowMode}
+            allowDelete={!isImportedWorkflowMode}
+            badge={isImportedWorkflowMode ? 'Imported Workflow' : 'Playground'}
           />
           <div className="panel-title">Inline Code</div>
           <CodeMirrorEditor editorId="code" value={code} onChange={setCode} />
