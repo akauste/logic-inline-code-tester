@@ -158,6 +158,45 @@ code {
   color: var(--muted);
 }
 
+.panel-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  overflow-x: auto;
+}
+
+.panel-tab {
+  padding: 10px 4px 12px;
+  border-radius: 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-bottom: -1px;
+}
+
+.panel-tab:hover {
+  background: transparent;
+  color: #dbeafe;
+  border-bottom-color: rgba(90, 166, 255, 0.28);
+}
+
+.panel-tab.active {
+  color: #dbeafe;
+  background: transparent;
+  border-bottom-color: rgba(90, 166, 255, 0.9);
+  box-shadow: inset 0 -1px 0 rgba(90, 166, 255, 0.9);
+}
+
+.panel-tab-content {
+  min-width: 0;
+}
+
 textarea {
   width: 100%;
   min-height: 320px;

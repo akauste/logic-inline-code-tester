@@ -48,6 +48,11 @@ const ASSERTION_LIBRARY_OPTIONS = [
   { value: 'assert', label: 'Chai Assert' },
   { value: 'expect', label: 'Chai Expect' },
 ];
+const RIGHT_PANEL_TABS = [
+  { value: 'workflow', label: 'Workflow' },
+  { value: 'mocked-inputs', label: 'Mocked Inputs' },
+  { value: 'json-context', label: 'JSON Context' },
+];
 
 function formatError(err) {
   if (!err) return 'Unknown error';
@@ -359,6 +364,7 @@ export function App() {
   const [importWorkflowText, setImportWorkflowText] = useState('');
   const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
   const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState('workflow');
 
   useEffect(() => {
     StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
@@ -1124,39 +1130,65 @@ export function App() {
             onDeleteItem={handleDeleteCase}
           />
 
-          <div className="panel-title">workflowContext Mocking</div>
-          <div className="hint">
-            Shape matches Logic Apps Standard: <code>{'{ actions, trigger, workflow }'}</code>.
+          <div className="panel-tabs" role="tablist" aria-label="Right panel views">
+            {RIGHT_PANEL_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={rightPanelTab === tab.value}
+                className={`panel-tab ${rightPanelTab === tab.value ? 'active' : ''}`}
+                onClick={() => setRightPanelTab(tab.value)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          <WorkflowVisualizer
-            importedWorkflow={importedWorkflow}
-            parsedWorkflowContext={parsedWorkflowPreview.value}
-            parseError={parsedWorkflowPreview.error}
-            selectedActionPath={currentAction.workflowPath}
-          />
+          {rightPanelTab === 'workflow' ? (
+            <div className="panel-tab-content">
+              <div className="panel-title">Workflow Map</div>
+              <div className="hint">
+                Shape matches Logic Apps Standard: <code>{'{ actions, trigger, workflow }'}</code>.
+              </div>
+              <WorkflowVisualizer
+                importedWorkflow={importedWorkflow}
+                parsedWorkflowContext={parsedWorkflowPreview.value}
+                parseError={parsedWorkflowPreview.error}
+                selectedActionPath={currentAction.workflowPath}
+              />
+            </div>
+          ) : null}
 
-          <MockDataEditor
-            requirements={mockRequirements}
-            workflowContext={parsedWorkflowPreview.value || {}}
-            parseError={parsedWorkflowPreview.error}
-            selectedActionName={selectedActionName}
-            selectedCaseName={selectedCaseName}
-            onUpdateRequirement={handleStructuredMockUpdate}
-          />
+          {rightPanelTab === 'mocked-inputs' ? (
+            <div className="panel-tab-content">
+              <MockDataEditor
+                requirements={mockRequirements}
+                workflowContext={parsedWorkflowPreview.value || {}}
+                parseError={parsedWorkflowPreview.error}
+                selectedActionName={selectedActionName}
+                selectedCaseName={selectedCaseName}
+                onUpdateRequirement={handleStructuredMockUpdate}
+              />
+            </div>
+          ) : null}
 
-          <div className="panel-title section-title">Advanced workflowContext JSON</div>
-          <div className="hint">
-            Use the targeted mock editors above for common upstream results. Edit the full JSON here for anything
-            more advanced.
-          </div>
-          <CodeMirrorEditor
-            editorId="workflowContext"
-            value={workflowText}
-            onChange={setWorkflowText}
-            mode="json"
-            height={260}
-          />
+          {rightPanelTab === 'json-context' ? (
+            <div className="panel-tab-content">
+              <div className="panel-title">Advanced workflowContext JSON</div>
+              <div className="hint">
+                Use the targeted mock editors in the `Mocked Inputs` tab for common upstream results. Edit the full
+                JSON here for anything more advanced.
+              </div>
+              <CodeMirrorEditor
+                editorId="workflowContext"
+                value={workflowText}
+                onChange={setWorkflowText}
+                mode="json"
+                height={260}
+              />
+            </div>
+          ) : null}
 
           <div className="panel-title section-title">Assertion (paired with selected test case)</div>
           <div className="field field-inline">
