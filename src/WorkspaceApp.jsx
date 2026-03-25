@@ -10,6 +10,7 @@ import { IntroBanner } from './components/IntroBanner.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
 import { TestCaseModal } from './components/TestCaseModal.jsx';
+import { WorkflowVisualizer } from './components/WorkflowVisualizer.jsx';
 
 const DEFAULT_CODE = `// Example: extract email addresses from the trigger body
 // Tip: reference data via workflowContext, matching Logic Apps Standard.
@@ -359,6 +360,14 @@ export function App() {
     () => Object.keys(currentAction.workflowContextCases).sort((left, right) => left.localeCompare(right)),
     [currentAction]
   );
+
+  const parsedWorkflowPreview = useMemo(() => {
+    try {
+      return { value: workflowText.trim() ? JSON.parse(workflowText) : {}, error: null };
+    } catch (error) {
+      return { value: null, error: formatError(error) };
+    }
+  }, [workflowText]);
 
   function clearOutput() {
     setResultLines([]);
@@ -1032,6 +1041,13 @@ export function App() {
           <div className="hint">
             Shape matches Logic Apps Standard: <code>{'{ actions, trigger, workflow }'}</code>.
           </div>
+
+          <WorkflowVisualizer
+            importedWorkflow={importedWorkflow}
+            parsedWorkflowContext={parsedWorkflowPreview.value}
+            parseError={parsedWorkflowPreview.error}
+            selectedActionPath={currentAction.workflowPath}
+          />
 
           <div className="panel-title section-title">Assertion (paired with selected test case)</div>
           <div className="field field-inline">
