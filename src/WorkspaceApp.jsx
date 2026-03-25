@@ -7,6 +7,7 @@ import { AssertionHelpModal } from './components/AssertionHelpModal.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
 import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
 import { IntroBanner } from './components/IntroBanner.jsx';
+import { MockDataEditor } from './components/MockDataEditor.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
 import { TestCaseModal } from './components/TestCaseModal.jsx';
@@ -257,6 +258,84 @@ function indentBlock(text, indent = '    ') {
     .join('\n');
 }
 
+function formatWorkflowExpression(segments) {
+  let expression = 'workflowContext';
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (index === 0 || /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment)) expression += `.${segment}`;
+    else expression += `[${JSON.stringify(segment)}]`;
+  }
+  return expression;
+}
+
+function setNestedValue(target, path, value) {
+  let current = target;
+  for (let index = 0; index < path.length; index += 1) {
+    const segment = path[index];
+    const isLeaf = index === path.length - 1;
+    if (isLeaf) {
+      current[segment] = value;
+      return;
+    }
+    if (!current[segment] || typeof current[segment] !== 'object' || Array.isArray(current[segment])) {
+      current[segment] = {};
+    }
+    current = current[segment];
+  }
+}
+
+function summarizeMockRequirements(code) {
+  try {
+    const analysis = ValidationService.extractWorkflowContextPathsFromCode(code);
+    const grouped = new Map();
+
+    for (const segments of analysis.validPaths || []) {
+      let normalizedPath = null;
+      let title = '';
+      let category = '';
+
+      if (segments[0] === 'trigger' && segments[1] === 'outputs' && (segments[2] === 'body' || segments[2] === 'headers')) {
+        normalizedPath = ['trigger', 'outputs', segments[2]];
+        title = `Trigger ${segments[2]}`;
+        category = 'Trigger';
+      } else if (segments[0] === 'actions' && typeof segments[1] === 'string') {
+        if (segments[2] === 'outputs' && (segments[3] === 'body' || segments[3] === 'headers')) {
+          normalizedPath = ['actions', segments[1], 'outputs', segments[3]];
+          title = `${segments[1]} ${segments[3]}`;
+          category = 'Action Output';
+        } else if (segments[2] === 'inputs') {
+          normalizedPath = ['actions', segments[1], 'inputs'];
+          title = `${segments[1]} inputs`;
+          category = 'Action Input';
+        }
+      }
+
+      if (!normalizedPath) continue;
+
+      const key = JSON.stringify(normalizedPath);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          path: normalizedPath,
+          title,
+          category,
+          caption: formatWorkflowExpression(normalizedPath),
+          accesses: [],
+        });
+      }
+
+      grouped.get(key).accesses.push(formatWorkflowExpression(segments));
+    }
+
+    return Array.from(grouped.values()).map((entry) => ({
+      ...entry,
+      accesses: Array.from(new Set(entry.accesses)).sort((left, right) => left.localeCompare(right)),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function App() {
   const initialState = useMemo(() => readInitialState(), []);
   const [actions, setActions] = useState(initialState.actions);
@@ -368,6 +447,8 @@ export function App() {
       return { value: null, error: formatError(error) };
     }
   }, [workflowText]);
+
+  const mockRequirements = useMemo(() => summarizeMockRequirements(code), [code]);
 
   function clearOutput() {
     setResultLines([]);
@@ -548,6 +629,19 @@ export function App() {
     }
 
     setResultLines([`Deleted: ${deletedCase}`]);
+  }
+
+  function handleStructuredMockUpdate(path, value) {
+    let nextWorkflowContext;
+    try {
+      nextWorkflowContext = workflowText.trim() ? JSON.parse(workflowText) : {};
+    } catch {
+      nextWorkflowContext = {};
+    }
+
+    nextWorkflowContext = cloneJson(nextWorkflowContext);
+    setNestedValue(nextWorkflowContext, path, value);
+    setWorkflowText(JSON.stringify(nextWorkflowContext, null, 2));
   }
 
   function parseWorkflowImport(text) {
@@ -1030,14 +1124,7 @@ export function App() {
             onDeleteItem={handleDeleteCase}
           />
 
-          <div className="panel-title">workflowContext JSON</div>
-          <CodeMirrorEditor
-            editorId="workflowContext"
-            value={workflowText}
-            onChange={setWorkflowText}
-            mode="json"
-            height={260}
-          />
+          <div className="panel-title">workflowContext Mocking</div>
           <div className="hint">
             Shape matches Logic Apps Standard: <code>{'{ actions, trigger, workflow }'}</code>.
           </div>
@@ -1047,6 +1134,28 @@ export function App() {
             parsedWorkflowContext={parsedWorkflowPreview.value}
             parseError={parsedWorkflowPreview.error}
             selectedActionPath={currentAction.workflowPath}
+          />
+
+          <MockDataEditor
+            requirements={mockRequirements}
+            workflowContext={parsedWorkflowPreview.value || {}}
+            parseError={parsedWorkflowPreview.error}
+            selectedActionName={selectedActionName}
+            selectedCaseName={selectedCaseName}
+            onUpdateRequirement={handleStructuredMockUpdate}
+          />
+
+          <div className="panel-title section-title">Advanced workflowContext JSON</div>
+          <div className="hint">
+            Use the targeted mock editors above for common upstream results. Edit the full JSON here for anything
+            more advanced.
+          </div>
+          <CodeMirrorEditor
+            editorId="workflowContext"
+            value={workflowText}
+            onChange={setWorkflowText}
+            mode="json"
+            height={260}
           />
 
           <div className="panel-title section-title">Assertion (paired with selected test case)</div>
