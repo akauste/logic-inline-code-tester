@@ -59,6 +59,10 @@ const RIGHT_PANEL_TABS = [
   { value: 'mocked-inputs', label: 'Mocked Inputs' },
   { value: 'json-context', label: 'JSON Context' },
 ];
+const LEFT_OUTPUT_TABS = [
+  { value: 'result', label: 'Result' },
+  { value: 'console', label: 'Console' },
+];
 
 function formatError(err) {
   if (!err) return 'Unknown error';
@@ -224,6 +228,7 @@ export function App() {
   const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
   const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState('workflow');
+  const [leftOutputTab, setLeftOutputTab] = useState('result');
 
   useEffect(() => {
     StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
@@ -978,6 +983,57 @@ export function App() {
           <div className="hint">
             Your snippet is treated like a "method body". Use <code>return</code> if you want a value back.
           </div>
+
+          <section className="actions actions-inline">
+            <label className="field" htmlFor="timeoutMs">
+              Timeout (ms)
+              <input
+                id="timeoutMs"
+                type="number"
+                min="50"
+                max="5000"
+                step="50"
+                value={timeoutMs}
+                onChange={(event) => setTimeoutMs(event.target.value)}
+              />
+            </label>
+
+            <button type="button" onClick={handleRun}>
+              Run
+            </button>
+            <button type="button" onClick={handleRunAll}>
+              Run All Test Cases
+            </button>
+          </section>
+
+          <section className="panel output-panel">
+            <div className="panel-tabs" role="tablist" aria-label="Execution output views">
+              {LEFT_OUTPUT_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={leftOutputTab === tab.value}
+                  className={`panel-tab ${leftOutputTab === tab.value ? 'active' : ''}`}
+                  onClick={() => setLeftOutputTab(tab.value)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {leftOutputTab === 'result' ? (
+              <div className="panel-tab-content">
+                <ResultDisplay lines={resultLines} />
+              </div>
+            ) : null}
+
+            {leftOutputTab === 'console' ? (
+              <div className="panel-tab-content">
+                <pre className="pre pre-output">{consoleText}</pre>
+              </div>
+            ) : null}
+          </section>
         </div>
 
         <div className="panel">
@@ -1101,40 +1157,6 @@ export function App() {
               </>
             )}
           </div>
-        </div>
-      </section>
-
-      <section className="actions">
-        <label className="field" htmlFor="timeoutMs">
-          Timeout (ms)
-          <input
-            id="timeoutMs"
-            type="number"
-            min="50"
-            max="5000"
-            step="50"
-            value={timeoutMs}
-            onChange={(event) => setTimeoutMs(event.target.value)}
-          />
-        </label>
-
-        <button type="button" onClick={handleRun}>
-          Run
-        </button>
-        <button type="button" onClick={handleRunAll}>
-          Run All Test Cases
-        </button>
-      </section>
-
-      <section className="bottom-grid">
-        <div className="panel">
-          <div className="panel-title">Result</div>
-          <ResultDisplay lines={resultLines} />
-        </div>
-
-        <div className="panel">
-          <div className="panel-title">Console</div>
-          <pre className="pre">{consoleText}</pre>
         </div>
       </section>
 

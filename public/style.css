@@ -238,6 +238,11 @@ textarea {
   margin-top: 14px;
 }
 
+.actions-inline {
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -853,6 +858,15 @@ button.danger:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.output-panel {
+  padding: 12px 14px 14px;
+}
+
+.pre-output {
+  min-height: 220px;
+  margin: 0;
 }
 
 .result-line {
