@@ -5,8 +5,8 @@ import { ValidationService } from '../public/services/ValidationService.js';
 import { CodeMirrorEditor } from './components/CodeMirrorEditor.jsx';
 import { AssertionHelpModal } from './components/AssertionHelpModal.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
+import { HelpModal } from './components/HelpModal.jsx';
 import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
-import { IntroBanner } from './components/IntroBanner.jsx';
 import { MockDataEditor } from './components/MockDataEditor.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
@@ -218,7 +218,6 @@ export function App() {
   const [timeoutMs, setTimeoutMs] = useState(1000);
   const [resultLines, setResultLines] = useState([]);
   const [consoleText, setConsoleText] = useState('');
-  const [introVisible, setIntroVisible] = useState(true);
   const [statusSummary, setStatusSummary] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('generate');
@@ -227,6 +226,7 @@ export function App() {
   const [importWorkflowText, setImportWorkflowText] = useState('');
   const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
   const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState('workflow');
   const [leftOutputTab, setLeftOutputTab] = useState('result');
 
@@ -957,12 +957,11 @@ export function App() {
         canExportWorkflow={Boolean(importedWorkflow)}
         onExportWorkflow={handleExportWorkflow}
         onExportTests={handleExportTests}
+        onOpenHelp={() => setHelpOpen(true)}
         statusSummary={statusSummary}
         onImportWorkflow={openImportModal}
         onRunAll={handleRunAll}
       />
-
-      {introVisible ? <IntroBanner onDismiss={() => setIntroVisible(false)} /> : null}
 
       <section className="grid">
         <div className="panel">
@@ -1181,6 +1180,7 @@ export function App() {
         existingActionCount={actionNames.length}
       />
 
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <AssertionHelpModal open={assertionHelpOpen} onClose={() => setAssertionHelpOpen(false)} />
     </div>
   );

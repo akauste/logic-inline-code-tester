@@ -4,6 +4,7 @@ export function HeaderBar({
   statusSummary,
   onExportWorkflow,
   onExportTests,
+  onOpenHelp,
   onImportWorkflow,
   onRunAll,
   canExportWorkflow,
@@ -20,6 +21,9 @@ export function HeaderBar({
         </button>
         <button type="button" className="btn-sm" onClick={onExportTests}>
           Export Tests
+        </button>
+        <button type="button" className="btn-sm" onClick={onOpenHelp}>
+          Help
         </button>
         <button type="button" className="btn-sm primary" onClick={onRunAll}>
           Run Tests
