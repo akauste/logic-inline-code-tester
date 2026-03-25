@@ -7,9 +7,17 @@ import { AssertionHelpModal } from './components/AssertionHelpModal.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
 import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
 import { IntroBanner } from './components/IntroBanner.jsx';
+import { MockDataEditor } from './components/MockDataEditor.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
 import { TestCaseModal } from './components/TestCaseModal.jsx';
+import { WorkflowVisualizer } from './components/WorkflowVisualizer.jsx';
+import {
+  extractInlineCodeActions,
+  formatWorkflowExpression,
+  setNestedValue,
+  updateWorkflowInlineCode,
+} from './utils/workflowUtils.mjs';
 
 const DEFAULT_CODE = `// Example: extract email addresses from the trigger body
 // Tip: reference data via workflowContext, matching Logic Apps Standard.
@@ -45,6 +53,11 @@ const ASSERTION_LIBRARY_OPTIONS = [
   { value: 'expression', label: 'Boolean Expression' },
   { value: 'assert', label: 'Chai Assert' },
   { value: 'expect', label: 'Chai Expect' },
+];
+const RIGHT_PANEL_TABS = [
+  { value: 'workflow', label: 'Workflow' },
+  { value: 'mocked-inputs', label: 'Mocked Inputs' },
+  { value: 'json-context', label: 'JSON Context' },
 ];
 
 function formatError(err) {
@@ -128,132 +141,63 @@ function buildUniqueActionName(baseName, existingNames) {
   return `${baseName} (${suffix})`;
 }
 
-function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = []) {
-  if (!actionMap || typeof actionMap !== 'object') return found;
-
-  for (const [actionName, action] of Object.entries(actionMap)) {
-    if (!action || typeof action !== 'object') continue;
-
-    const path = [...prefix, actionName];
-    if (action.type === 'ExecuteJavaScriptCode' && typeof action.inputs?.code === 'string') {
-      found.push({
-        name: path.join(' / '),
-        code: action.inputs.code,
-        path,
-      });
-    }
-
-    if (action.actions && typeof action.actions === 'object') {
-      collectInlineCodeActionsFromMap(action.actions, path, found);
-    }
-
-    if (action.else?.actions && typeof action.else.actions === 'object') {
-      collectInlineCodeActionsFromMap(action.else.actions, [...path, 'Else'], found);
-    }
-
-    if (action.default?.actions && typeof action.default.actions === 'object') {
-      collectInlineCodeActionsFromMap(action.default.actions, [...path, 'Default'], found);
-    }
-
-    if (action.cases && typeof action.cases === 'object') {
-      for (const [caseName, caseValue] of Object.entries(action.cases)) {
-        if (caseValue?.actions && typeof caseValue.actions === 'object') {
-          collectInlineCodeActionsFromMap(caseValue.actions, [...path, caseName], found);
-        }
-      }
-    }
-  }
-
-  return found;
-}
-
-function extractInlineCodeActions(logicApp) {
-  const rootActions =
-    logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object'
-      ? logicApp.definition.actions
-      : logicApp?.actions && typeof logicApp.actions === 'object'
-        ? logicApp.actions
-        : null;
-
-  if (!rootActions) return [];
-
-  return collectInlineCodeActionsFromMap(rootActions);
-}
-
-function getRootActions(logicApp) {
-  if (logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object') {
-    return logicApp.definition.actions;
-  }
-
-  if (logicApp?.actions && typeof logicApp.actions === 'object') {
-    return logicApp.actions;
-  }
-
-  return null;
-}
-
-function getChildActionMap(action, segment) {
-  if (!action || typeof action !== 'object') return null;
-
-  if (segment === 'Else') {
-    return action.else?.actions && typeof action.else.actions === 'object' ? action.else.actions : null;
-  }
-
-  if (segment === 'Default') {
-    return action.default?.actions && typeof action.default.actions === 'object' ? action.default.actions : null;
-  }
-
-  if (action.cases && typeof action.cases === 'object') {
-    const caseEntry = action.cases[segment];
-    if (caseEntry?.actions && typeof caseEntry.actions === 'object') {
-      return caseEntry.actions;
-    }
-  }
-
-  if (action.actions && typeof action.actions === 'object') {
-    return action.actions;
-  }
-
-  return null;
-}
-
-function updateWorkflowInlineCode(logicApp, workflowPath, code) {
-  const rootActions = getRootActions(logicApp);
-  if (!rootActions || !Array.isArray(workflowPath) || workflowPath.length === 0) {
-    return false;
-  }
-
-  let currentMap = rootActions;
-  for (let index = 0; index < workflowPath.length; index += 1) {
-    const segment = workflowPath[index];
-    const action = currentMap?.[segment];
-    if (!action || typeof action !== 'object') {
-      return false;
-    }
-
-    if (index === workflowPath.length - 1) {
-      if (!action.inputs || typeof action.inputs !== 'object') {
-        action.inputs = {};
-      }
-      action.inputs.code = code;
-      return true;
-    }
-
-    currentMap = getChildActionMap(action, workflowPath[index + 1]);
-    if (!currentMap) {
-      return false;
-    }
-    index += 1;
-  }
-
-  return false;
-}
-
 function indentBlock(text, indent = '    ') {
   return String(text || '')
     .split('\n')
     .map((line) => `${indent}${line}`)
     .join('\n');
+}
+
+function summarizeMockRequirements(code) {
+  try {
+    const analysis = ValidationService.extractWorkflowContextPathsFromCode(code);
+    const grouped = new Map();
+
+    for (const segments of analysis.validPaths || []) {
+      let normalizedPath = null;
+      let title = '';
+      let category = '';
+
+      if (segments[0] === 'trigger' && segments[1] === 'outputs' && (segments[2] === 'body' || segments[2] === 'headers')) {
+        normalizedPath = ['trigger', 'outputs', segments[2]];
+        title = `Trigger ${segments[2]}`;
+        category = 'Trigger';
+      } else if (segments[0] === 'actions' && typeof segments[1] === 'string') {
+        if (segments[2] === 'outputs' && (segments[3] === 'body' || segments[3] === 'headers')) {
+          normalizedPath = ['actions', segments[1], 'outputs', segments[3]];
+          title = `${segments[1]} ${segments[3]}`;
+          category = 'Action Output';
+        } else if (segments[2] === 'inputs') {
+          normalizedPath = ['actions', segments[1], 'inputs'];
+          title = `${segments[1]} inputs`;
+          category = 'Action Input';
+        }
+      }
+
+      if (!normalizedPath) continue;
+
+      const key = JSON.stringify(normalizedPath);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          path: normalizedPath,
+          title,
+          category,
+          caption: formatWorkflowExpression(normalizedPath),
+          accesses: [],
+        });
+      }
+
+      grouped.get(key).accesses.push(formatWorkflowExpression(segments));
+    }
+
+    return Array.from(grouped.values()).map((entry) => ({
+      ...entry,
+      accesses: Array.from(new Set(entry.accesses)).sort((left, right) => left.localeCompare(right)),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export function App() {
@@ -279,6 +223,7 @@ export function App() {
   const [importWorkflowText, setImportWorkflowText] = useState('');
   const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
   const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState('workflow');
 
   useEffect(() => {
     StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
@@ -359,6 +304,16 @@ export function App() {
     () => Object.keys(currentAction.workflowContextCases).sort((left, right) => left.localeCompare(right)),
     [currentAction]
   );
+
+  const parsedWorkflowPreview = useMemo(() => {
+    try {
+      return { value: workflowText.trim() ? JSON.parse(workflowText) : {}, error: null };
+    } catch (error) {
+      return { value: null, error: formatError(error) };
+    }
+  }, [workflowText]);
+
+  const mockRequirements = useMemo(() => summarizeMockRequirements(code), [code]);
 
   function clearOutput() {
     setResultLines([]);
@@ -539,6 +494,19 @@ export function App() {
     }
 
     setResultLines([`Deleted: ${deletedCase}`]);
+  }
+
+  function handleStructuredMockUpdate(path, value) {
+    let nextWorkflowContext;
+    try {
+      nextWorkflowContext = workflowText.trim() ? JSON.parse(workflowText) : {};
+    } catch {
+      nextWorkflowContext = {};
+    }
+
+    nextWorkflowContext = cloneJson(nextWorkflowContext);
+    setNestedValue(nextWorkflowContext, path, value);
+    setWorkflowText(JSON.stringify(nextWorkflowContext, null, 2));
   }
 
   function parseWorkflowImport(text) {
@@ -1021,17 +989,65 @@ export function App() {
             onDeleteItem={handleDeleteCase}
           />
 
-          <div className="panel-title">workflowContext JSON</div>
-          <CodeMirrorEditor
-            editorId="workflowContext"
-            value={workflowText}
-            onChange={setWorkflowText}
-            mode="json"
-            height={260}
-          />
-          <div className="hint">
-            Shape matches Logic Apps Standard: <code>{'{ actions, trigger, workflow }'}</code>.
+          <div className="panel-tabs" role="tablist" aria-label="Right panel views">
+            {RIGHT_PANEL_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={rightPanelTab === tab.value}
+                className={`panel-tab ${rightPanelTab === tab.value ? 'active' : ''}`}
+                onClick={() => setRightPanelTab(tab.value)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
+
+          {rightPanelTab === 'workflow' ? (
+            <div className="panel-tab-content">
+              <div className="panel-title">Workflow Map</div>
+              <div className="hint">
+                Shape matches Logic Apps Standard: <code>{'{ actions, trigger, workflow }'}</code>.
+              </div>
+              <WorkflowVisualizer
+                importedWorkflow={importedWorkflow}
+                parsedWorkflowContext={parsedWorkflowPreview.value}
+                parseError={parsedWorkflowPreview.error}
+                selectedActionPath={currentAction.workflowPath}
+              />
+            </div>
+          ) : null}
+
+          {rightPanelTab === 'mocked-inputs' ? (
+            <div className="panel-tab-content">
+              <MockDataEditor
+                requirements={mockRequirements}
+                workflowContext={parsedWorkflowPreview.value || {}}
+                parseError={parsedWorkflowPreview.error}
+                selectedActionName={selectedActionName}
+                selectedCaseName={selectedCaseName}
+                onUpdateRequirement={handleStructuredMockUpdate}
+              />
+            </div>
+          ) : null}
+
+          {rightPanelTab === 'json-context' ? (
+            <div className="panel-tab-content">
+              <div className="panel-title">Advanced workflowContext JSON</div>
+              <div className="hint">
+                Use the targeted mock editors in the `Mocked Inputs` tab for common upstream results. Edit the full
+                JSON here for anything more advanced.
+              </div>
+              <CodeMirrorEditor
+                editorId="workflowContext"
+                value={workflowText}
+                onChange={setWorkflowText}
+                mode="json"
+                height={260}
+              />
+            </div>
+          ) : null}
 
           <div className="panel-title section-title">Assertion (paired with selected test case)</div>
           <div className="field field-inline">

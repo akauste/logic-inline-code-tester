@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node scripts/build-static.js",
     "preview": "npx --yes serve dist -p 3000",
-    "test": "node --test tests/assertion.test.js",
+    "test": "node --test tests",
+    "test:coverage": "node --test --experimental-test-coverage tests",
     "test:assertion": "node --test tests/assertion.test.js"
   },
   "keywords": [],
