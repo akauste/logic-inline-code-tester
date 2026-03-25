@@ -107,12 +107,18 @@ export function MockDataEditor({
                       ...currentDrafts,
                       [requirement.key]: nextValue,
                     }));
-
+                  }}
+                  onBlur={(nextValue) => {
                     try {
                       const parsedValue = JSON.parse(nextValue);
+                      const formattedValue = toPrettyJson(parsedValue);
                       onUpdateRequirement(requirement.path, parsedValue);
+                      setDrafts((currentDrafts) => ({
+                        ...currentDrafts,
+                        [requirement.key]: formattedValue,
+                      }));
                     } catch {
-                      // Keep local draft while JSON is temporarily invalid.
+                      // Keep the local draft unchanged while JSON is invalid.
                     }
                   }}
                   mode="json"
