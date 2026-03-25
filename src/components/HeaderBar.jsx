@@ -4,9 +4,12 @@ export function HeaderBar({
   statusSummary,
   onExportWorkflow,
   onExportTests,
+  onOpenHelp,
   onImportWorkflow,
+  onResetToPlayground,
   onRunAll,
   canExportWorkflow,
+  isImportedWorkflowMode,
 }) {
   return (
     <header>
@@ -15,11 +18,19 @@ export function HeaderBar({
         <button type="button" className="btn-sm" onClick={onImportWorkflow}>
           Import Workflow
         </button>
+        {isImportedWorkflowMode ? (
+          <button type="button" className="btn-sm" onClick={onResetToPlayground}>
+            Reset To Playground
+          </button>
+        ) : null}
         <button type="button" className="btn-sm" onClick={onExportWorkflow} disabled={!canExportWorkflow}>
           Export Workflow
         </button>
         <button type="button" className="btn-sm" onClick={onExportTests}>
           Export Tests
+        </button>
+        <button type="button" className="btn-sm" onClick={onOpenHelp}>
+          Help
         </button>
         <button type="button" className="btn-sm primary" onClick={onRunAll}>
           Run Tests

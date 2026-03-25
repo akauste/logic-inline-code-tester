@@ -4,20 +4,34 @@ const { assert: chaiAssert, expect: chaiExpect } = require('chai');
 const { runInlineSnippet, toJsonSafeValue } = require('./runInlineSnippet.js');
 
 // Define the default constants directly for testing
-const DEFAULT_CODE = `// Example: extract email addresses from the trigger body
-// Tip: reference data via workflowContext, matching Logic Apps Standard.
-const text =
+const DEFAULT_CODE = `// action-name: Inline Code
+// Example: read both trigger output and a prior HTTP action output.
+// Tip: Logic Apps Standard inline code reads values from workflowContext.
+const triggerText =
   workflowContext?.trigger?.outputs?.body?.Body ??
   "";
 
-const myRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/ig;
-const matches = (text.match(myRegex) || []);
+const httpStatus =
+  workflowContext?.actions?.Get_user_profile?.outputs?.body?.status ??
+  "unknown";
 
-// Returning an array becomes the action "Result" token.
-return matches;`;
+return {
+  triggerText,
+  httpStatus,
+};`;
 
 const DEFAULT_WORKFLOW_CONTEXT = `{
-  "actions": {},
+  "actions": {
+    "Get_user_profile": {
+      "outputs": {
+        "headers": {},
+        "body": {
+          "status": "active",
+          "displayName": "Ada Lovelace"
+        }
+      }
+    }
+  },
   "trigger": {
     "name": "When_a_new_email_arrives",
     "outputs": {
@@ -32,7 +46,7 @@ const DEFAULT_WORKFLOW_CONTEXT = `{
   }
 }`;
 
-const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
+const DEFAULT_ASSERTION = `result?.triggerText?.includes("test@example.com") && result?.httpStatus === "active"`;
 
 function evaluateAssertion({ assertionLibrary = 'expression', assertionText, resultValue, workflowContext }) {
   const text = (assertionText || '').trim();
@@ -169,8 +183,10 @@ test('default code executes successfully', () => {
   const rawResult = runInlineSnippet(DEFAULT_CODE, workflowContext);
   const resultValue = toJsonSafeValue(rawResult);
 
-  // Should extract emails from the default workflow context
-  assert.deepEqual(resultValue, ['test@example.com', 'user2@domain.org']);
+  assert.deepEqual(resultValue, {
+    triggerText: 'Hello World. Contact me at test@example.com and user2@domain.org',
+    httpStatus: 'active',
+  });
 });
 
 test('default assertion works with default code result', () => {

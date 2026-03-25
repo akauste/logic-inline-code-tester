@@ -5,8 +5,8 @@ import { ValidationService } from '../public/services/ValidationService.js';
 import { CodeMirrorEditor } from './components/CodeMirrorEditor.jsx';
 import { AssertionHelpModal } from './components/AssertionHelpModal.jsx';
 import { HeaderBar } from './components/HeaderBar.jsx';
+import { HelpModal } from './components/HelpModal.jsx';
 import { ImportWorkflowModal } from './components/ImportWorkflowModal.jsx';
-import { IntroBanner } from './components/IntroBanner.jsx';
 import { MockDataEditor } from './components/MockDataEditor.jsx';
 import { ResultDisplay } from './components/ResultDisplay.jsx';
 import { TestCaseManager } from './components/TestCaseManager.jsx';
@@ -19,20 +19,36 @@ import {
   updateWorkflowInlineCode,
 } from './utils/workflowUtils.mjs';
 
-const DEFAULT_CODE = `// Example: extract email addresses from the trigger body
-// Tip: reference data via workflowContext, matching Logic Apps Standard.
-const text =
+const DEFAULT_CODE_BODY = `// Example: read both trigger output and a prior HTTP action output.
+// Tip: Logic Apps Standard inline code reads values from workflowContext.
+const triggerText =
   workflowContext?.trigger?.outputs?.body?.Body ??
   "";
 
-const myRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig;
-const matches = (text.match(myRegex) || []);
+const httpStatus =
+  workflowContext?.actions?.Get_user_profile?.outputs?.body?.status ??
+  "unknown";
 
-// Returning an array becomes the action "Result" token.
-return matches;`;
+return {
+  triggerText,
+  httpStatus,
+};`;
+
+const DEFAULT_CODE = `// action-name: Inline Code
+${DEFAULT_CODE_BODY}`;
 
 const DEFAULT_WORKFLOW_CONTEXT = `{
-  "actions": {},
+  "actions": {
+    "Get_user_profile": {
+      "outputs": {
+        "headers": {},
+        "body": {
+          "status": "active",
+          "displayName": "Ada Lovelace"
+        }
+      }
+    }
+  },
   "trigger": {
     "name": "When_a_new_email_arrives",
     "outputs": {
@@ -47,7 +63,7 @@ const DEFAULT_WORKFLOW_CONTEXT = `{
   }
 }`;
 
-const DEFAULT_ASSERTION = `Array.isArray(result) && result.length >= 1`;
+const DEFAULT_ASSERTION = `result?.triggerText?.includes("test@example.com") && result?.httpStatus === "active"`;
 const DEFAULT_ASSERTION_LIBRARY = StorageService.getDefaultAssertionLibrary();
 const ASSERTION_LIBRARY_OPTIONS = [
   { value: 'expression', label: 'Boolean Expression' },
@@ -58,6 +74,10 @@ const RIGHT_PANEL_TABS = [
   { value: 'workflow', label: 'Workflow' },
   { value: 'mocked-inputs', label: 'Mocked Inputs' },
   { value: 'json-context', label: 'JSON Context' },
+];
+const LEFT_OUTPUT_TABS = [
+  { value: 'result', label: 'Result' },
+  { value: 'console', label: 'Console' },
 ];
 
 function formatError(err) {
@@ -78,7 +98,7 @@ function readInitialState() {
     return {
       actions: {
         [defaultActionName]: {
-          code: DEFAULT_CODE,
+          code: withActionNameComment(defaultActionName, DEFAULT_CODE_BODY),
           selectedCaseName,
           workflowContextCases: cases,
           workflowPath: null,
@@ -86,7 +106,7 @@ function readInitialState() {
       },
       selectedActionName: defaultActionName,
       selectedCaseName,
-      code: DEFAULT_CODE,
+      code: withActionNameComment(defaultActionName, DEFAULT_CODE_BODY),
       workflowText: JSON.stringify(entry.workflowContext, null, 2),
       assertionText: entry.assertion,
       assertionLibrary: entry.assertionLibrary,
@@ -139,6 +159,19 @@ function buildUniqueActionName(baseName, existingNames) {
   }
 
   return `${baseName} (${suffix})`;
+}
+
+function withActionNameComment(actionName, code) {
+  const safeActionName = typeof actionName === 'string' && actionName.trim() ? actionName.trim() : 'Inline Code';
+  const commentLine = `// action-name: ${safeActionName}`;
+  const codeText = typeof code === 'string' ? code.trimStart() : '';
+
+  if (codeText.startsWith('// action-name:')) {
+    const [, ...restLines] = codeText.split('\n');
+    return `${commentLine}\n${restLines.join('\n')}`.trimEnd();
+  }
+
+  return `${commentLine}\n${codeText}`.trimEnd();
 }
 
 function indentBlock(text, indent = '    ') {
@@ -214,7 +247,6 @@ export function App() {
   const [timeoutMs, setTimeoutMs] = useState(1000);
   const [resultLines, setResultLines] = useState([]);
   const [consoleText, setConsoleText] = useState('');
-  const [introVisible, setIntroVisible] = useState(true);
   const [statusSummary, setStatusSummary] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('generate');
@@ -223,7 +255,9 @@ export function App() {
   const [importWorkflowText, setImportWorkflowText] = useState('');
   const [importedWorkflow, setImportedWorkflow] = useState(initialState.importedWorkflow);
   const [assertionHelpOpen, setAssertionHelpOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState('workflow');
+  const [leftOutputTab, setLeftOutputTab] = useState('result');
 
   useEffect(() => {
     StorageService.saveTestCases(actions, selectedActionName, importedWorkflow);
@@ -314,6 +348,16 @@ export function App() {
   }, [workflowText]);
 
   const mockRequirements = useMemo(() => summarizeMockRequirements(code), [code]);
+  const isImportedWorkflowMode = Boolean(importedWorkflow);
+  const visibleRightPanelTabs = useMemo(
+    () => (isImportedWorkflowMode ? RIGHT_PANEL_TABS : RIGHT_PANEL_TABS.filter((tab) => tab.value !== 'workflow')),
+    [isImportedWorkflowMode]
+  );
+
+  useEffect(() => {
+    if (visibleRightPanelTabs.some((tab) => tab.value === rightPanelTab)) return;
+    setRightPanelTab(visibleRightPanelTabs[0]?.value || 'mocked-inputs');
+  }, [rightPanelTab, visibleRightPanelTabs]);
 
   function clearOutput() {
     setResultLines([]);
@@ -399,6 +443,11 @@ export function App() {
   }
 
   function handleCreateAction() {
+    if (isImportedWorkflowMode) {
+      setResultLines(['Inline actions are fixed in imported workflow mode. Import a different workflow to change the action list.']);
+      return;
+    }
+
     const name = window.prompt('Action name');
     const actionName = name ? name.trim() : '';
     if (!actionName) return;
@@ -411,7 +460,7 @@ export function App() {
     const nextActions = {
       ...actions,
       [actionName]: {
-        code: DEFAULT_CODE,
+        code: withActionNameComment(actionName, DEFAULT_CODE_BODY),
         selectedCaseName: StorageService.getDefaultCaseName(),
         workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
         workflowPath: null,
@@ -425,6 +474,11 @@ export function App() {
   }
 
   function handleDeleteAction() {
+    if (isImportedWorkflowMode) {
+      setResultLines(['Inline actions are fixed in imported workflow mode. Import a different workflow to change the action list.']);
+      return;
+    }
+
     clearOutput();
     if (!selectedActionName) return;
     if (!window.confirm(`Delete inline code action "${selectedActionName}"?`)) return;
@@ -438,7 +492,7 @@ export function App() {
       const defaultActionName = StorageService.getDefaultActionName();
       const defaults = {
         [defaultActionName]: {
-          code: DEFAULT_CODE,
+          code: withActionNameComment(actionName, DEFAULT_CODE_BODY),
           selectedCaseName: StorageService.getDefaultCaseName(),
           workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
           workflowPath: null,
@@ -532,6 +586,37 @@ export function App() {
     setImportModalOpen(false);
   }
 
+  function handleResetToPlayground() {
+    if (!window.confirm('Reset back to playground mode? This will replace the imported workflow actions with a fresh playground action.')) {
+      return;
+    }
+
+    const defaultActionName = StorageService.getDefaultActionName();
+    const defaultCases = StorageService.createDefaultCases(DEFAULT_ASSERTION);
+    const defaultCaseName = StorageService.getDefaultCaseName();
+    const defaultEntry = StorageService.normalizeCaseEntry(defaultCases[defaultCaseName], DEFAULT_ASSERTION);
+    const nextActions = {
+      [defaultActionName]: {
+        code: withActionNameComment(defaultActionName, DEFAULT_CODE_BODY),
+        selectedCaseName: defaultCaseName,
+        workflowContextCases: defaultCases,
+        workflowPath: null,
+      },
+    };
+
+    setImportedWorkflow(null);
+    setActions(nextActions);
+    setSelectedActionName(defaultActionName);
+    setCode(withActionNameComment(defaultActionName, DEFAULT_CODE_BODY));
+    setSelectedCaseName(defaultCaseName);
+    setWorkflowText(JSON.stringify(defaultEntry.workflowContext, null, 2));
+    setAssertionText(defaultEntry.assertion || DEFAULT_ASSERTION);
+    setAssertionLibrary(defaultEntry.assertionLibrary || DEFAULT_ASSERTION_LIBRARY);
+    setRightPanelTab('workflow');
+    clearOutput();
+    setResultLines(['Reset to playground mode. You can now add or remove standalone inline actions again.']);
+  }
+
   function handleImportWorkflow(preview, jsonText) {
     if (!preview || preview.error) {
       setResultLines([preview?.error || 'Invalid Logic App JSON.']);
@@ -563,7 +648,7 @@ export function App() {
         const uniqueName = buildUniqueActionName(baseName, usedNames);
         usedNames.add(uniqueName);
         nextActions[uniqueName] = {
-          code: action.code,
+          code: withActionNameComment(action.name, action.code),
           selectedCaseName: StorageService.getDefaultCaseName(),
           workflowContextCases: StorageService.createDefaultCases(DEFAULT_ASSERTION),
           workflowPath: action.path,
@@ -952,15 +1037,16 @@ export function App() {
         canExportWorkflow={Boolean(importedWorkflow)}
         onExportWorkflow={handleExportWorkflow}
         onExportTests={handleExportTests}
+        onOpenHelp={() => setHelpOpen(true)}
         statusSummary={statusSummary}
         onImportWorkflow={openImportModal}
+        onResetToPlayground={handleResetToPlayground}
         onRunAll={handleRunAll}
+        isImportedWorkflowMode={isImportedWorkflowMode}
       />
 
-      {introVisible ? <IntroBanner onDismiss={() => setIntroVisible(false)} /> : null}
-
       <section className="grid">
-        <div className="panel">
+        <div className="panel workspace-panel">
           <TestCaseManager
             itemNames={actionNames}
             selectedItem={selectedActionName}
@@ -968,19 +1054,77 @@ export function App() {
             onCreateItem={handleCreateAction}
             onDeleteItem={handleDeleteAction}
             title="Inline Actions"
-            caption="Each action keeps its own code and test suite."
+            caption={
+              isImportedWorkflowMode
+                ? 'Imported workflow mode: the action list is fixed to preserve safe workflow export.'
+                : 'Playground mode: add or remove standalone inline actions freely.'
+            }
             selectLabel="Select inline code action"
             createLabel="Add Action"
             deleteLabel="Delete Action"
+            allowCreate={!isImportedWorkflowMode}
+            allowDelete={!isImportedWorkflowMode}
+            badge={isImportedWorkflowMode ? 'Imported Workflow' : 'Playground'}
           />
           <div className="panel-title">Inline Code</div>
           <CodeMirrorEditor editorId="code" value={code} onChange={setCode} />
           <div className="hint">
             Your snippet is treated like a "method body". Use <code>return</code> if you want a value back.
           </div>
+
+          <section className="actions actions-inline">
+            <label className="field" htmlFor="timeoutMs">
+              Timeout (ms)
+              <input
+                id="timeoutMs"
+                type="number"
+                min="50"
+                max="5000"
+                step="50"
+                value={timeoutMs}
+                onChange={(event) => setTimeoutMs(event.target.value)}
+              />
+            </label>
+
+            <button type="button" onClick={handleRun}>
+              Run
+            </button>
+            <button type="button" onClick={handleRunAll}>
+              Run All Test Cases
+            </button>
+          </section>
+
+          <section className="output-panel">
+            <div className="panel-tabs" role="tablist" aria-label="Execution output views">
+              {LEFT_OUTPUT_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={leftOutputTab === tab.value}
+                  className={`panel-tab ${leftOutputTab === tab.value ? 'active' : ''}`}
+                  onClick={() => setLeftOutputTab(tab.value)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {leftOutputTab === 'result' ? (
+              <div className="panel-tab-content">
+                <ResultDisplay lines={resultLines} />
+              </div>
+            ) : null}
+
+            {leftOutputTab === 'console' ? (
+              <div className="panel-tab-content">
+                <pre className="pre pre-output">{consoleText}</pre>
+              </div>
+            ) : null}
+          </section>
         </div>
 
-        <div className="panel">
+        <div className="panel workspace-panel">
           <TestCaseManager
             itemNames={caseNames}
             selectedItem={selectedCaseName}
@@ -990,7 +1134,7 @@ export function App() {
           />
 
           <div className="panel-tabs" role="tablist" aria-label="Right panel views">
-            {RIGHT_PANEL_TABS.map((tab) => (
+            {visibleRightPanelTabs.map((tab) => (
               <button
                 key={tab.value}
                 type="button"
@@ -1104,40 +1248,6 @@ export function App() {
         </div>
       </section>
 
-      <section className="actions">
-        <label className="field" htmlFor="timeoutMs">
-          Timeout (ms)
-          <input
-            id="timeoutMs"
-            type="number"
-            min="50"
-            max="5000"
-            step="50"
-            value={timeoutMs}
-            onChange={(event) => setTimeoutMs(event.target.value)}
-          />
-        </label>
-
-        <button type="button" onClick={handleRun}>
-          Run
-        </button>
-        <button type="button" onClick={handleRunAll}>
-          Run All Test Cases
-        </button>
-      </section>
-
-      <section className="bottom-grid">
-        <div className="panel">
-          <div className="panel-title">Result</div>
-          <ResultDisplay lines={resultLines} />
-        </div>
-
-        <div className="panel">
-          <div className="panel-title">Console</div>
-          <pre className="pre">{consoleText}</pre>
-        </div>
-      </section>
-
       <TestCaseModal
         open={modalOpen}
         mode={modalMode}
@@ -1159,6 +1269,7 @@ export function App() {
         existingActionCount={actionNames.length}
       />
 
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <AssertionHelpModal open={assertionHelpOpen} onClose={() => setAssertionHelpOpen(false)} />
     </div>
   );
