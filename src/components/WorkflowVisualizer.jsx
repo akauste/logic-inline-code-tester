@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 72;
@@ -6,6 +6,7 @@ const COLUMN_GAP = 30;
 const ROW_GAP = 42;
 const SVG_PADDING_X = 24;
 const SVG_PADDING_Y = 24;
+const SVG_VIEWPORT_MARGIN = 18;
 
 function getRootActions(logicApp) {
   if (logicApp?.definition?.actions && typeof logicApp.definition.actions === 'object') {
@@ -252,11 +253,26 @@ function layoutGraph(graph, selectedActionPath) {
     };
   });
 
+  const positionedNodes = orderedNodes.map((node) => ({
+    ...node,
+    x: node.x,
+    y: node.y,
+  }));
+
+  const minX = Math.min(...positionedNodes.map((node) => node.x), 0) - SVG_VIEWPORT_MARGIN;
+  const minY = Math.min(...positionedNodes.map((node) => node.y), 0) - SVG_VIEWPORT_MARGIN;
+  const maxX =
+    Math.max(...positionedNodes.map((node) => node.x + NODE_WIDTH), 0) + SVG_VIEWPORT_MARGIN;
+  const maxY =
+    Math.max(...positionedNodes.map((node) => node.y + NODE_HEIGHT), 0) + SVG_VIEWPORT_MARGIN;
+
   return {
-    nodes: orderedNodes,
+    nodes: positionedNodes,
     edges: laidOutEdges,
-    width,
-    height,
+    width: maxX - minX + SVG_PADDING_X * 2,
+    height: maxY - minY + SVG_PADDING_Y * 2,
+    offsetX: SVG_PADDING_X - minX,
+    offsetY: SVG_PADDING_Y - minY,
     hasContent: orderedNodes.length > 0,
   };
 }
@@ -330,6 +346,12 @@ function renderNode(node) {
 }
 
 export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, parseError, selectedActionPath }) {
+  const shellRef = useRef(null);
+  const dragStateRef = useRef(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+
   const graph = useMemo(
     () =>
       layoutGraph(
@@ -338,6 +360,89 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
       ),
     [importedWorkflow, parsedWorkflowContext, selectedActionPath]
   );
+
+  useEffect(() => {
+    const element = shellRef.current;
+    if (!element) return undefined;
+
+    const updateSize = () => {
+      setViewportSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      });
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateSize);
+      return () => window.removeEventListener('resize', updateSize);
+    }
+
+    const observer = new ResizeObserver(() => updateSize());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const fitScale = useMemo(() => {
+    if (!viewportSize.width || !viewportSize.height || !graph.width || !graph.height) return 1;
+    return Math.min(viewportSize.width / graph.width, viewportSize.height / graph.height);
+  }, [graph.height, graph.width, viewportSize.height, viewportSize.width]);
+
+  useEffect(() => {
+    const nextZoom = Number.isFinite(fitScale) && fitScale > 0 ? fitScale : 1;
+    setZoom(nextZoom);
+    setPan({ x: 0, y: 0 });
+  }, [fitScale, graph.height, graph.width]);
+
+  function clampZoom(nextZoom) {
+    return Math.max(0.35, Math.min(2.5, nextZoom));
+  }
+
+  function zoomBy(multiplier) {
+    setZoom((currentZoom) => clampZoom(currentZoom * multiplier));
+  }
+
+  function resetViewport() {
+    setZoom(clampZoom(fitScale || 1));
+    setPan({ x: 0, y: 0 });
+  }
+
+  function beginPan(event) {
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPanX: pan.x,
+      startPanY: pan.y,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function continuePan(event) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    setPan({
+      x: dragState.startPanX + (event.clientX - dragState.startX),
+      y: dragState.startPanY + (event.clientY - dragState.startY),
+    });
+  }
+
+  function endPan(event) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    dragStateRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
+
+  function handleWheel(event) {
+    event.preventDefault();
+    const multiplier = event.deltaY < 0 ? 1.08 : 1 / 1.08;
+    setZoom((currentZoom) => clampZoom(currentZoom * multiplier));
+  }
+
+  const viewportTransform = `translate(${pan.x}, ${pan.y}) scale(${zoom})`;
 
   return (
     <section className="workflow-visualizer">
@@ -355,6 +460,17 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
           <span className="workflow-legend-pill workflow-legend-pill-inline">Inline JS</span>
           <span className="workflow-legend-pill workflow-legend-pill-selected">Selected</span>
         </div>
+        <div className="workflow-toolbar">
+          <button type="button" className="workflow-tool-button" onClick={() => zoomBy(1 / 1.12)}>
+            -
+          </button>
+          <button type="button" className="workflow-tool-button" onClick={() => zoomBy(1.12)}>
+            +
+          </button>
+          <button type="button" className="workflow-tool-button workflow-tool-button-wide" onClick={resetViewport}>
+            Reset
+          </button>
+        </div>
       </div>
 
       {parseError && !importedWorkflow ? (
@@ -364,16 +480,27 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
       ) : !graph.hasContent ? (
         <div className="workflow-empty-state">No workflow nodes found yet.</div>
       ) : (
-        <div className="workflow-svg-shell">
+        <div
+          ref={shellRef}
+          className="workflow-svg-shell"
+          onPointerDown={beginPan}
+          onPointerMove={continuePan}
+          onPointerUp={endPan}
+          onPointerLeave={endPan}
+          onWheel={handleWheel}
+        >
           <svg
             className="workflow-svg-canvas"
             viewBox={`0 0 ${graph.width} ${graph.height}`}
             role="img"
             aria-label="Workflow diagram"
+            preserveAspectRatio="xMinYMin meet"
           >
-            <g transform={`translate(${SVG_PADDING_X}, ${SVG_PADDING_Y})`}>
-              {graph.edges.map((edge) => renderEdge(edge))}
-              {graph.nodes.map((node) => renderNode(node))}
+            <g transform={viewportTransform}>
+              <g transform={`translate(${graph.offsetX}, ${graph.offsetY})`}>
+                {graph.edges.map((edge) => renderEdge(edge))}
+                {graph.nodes.map((node) => renderNode(node))}
+              </g>
             </g>
           </svg>
         </div>

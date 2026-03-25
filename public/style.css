@@ -321,6 +321,8 @@ button.btn-sm:hover {
 .workflow-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -361,19 +363,26 @@ button.btn-sm:hover {
 }
 
 .workflow-svg-shell {
-  overflow: auto;
+  position: relative;
+  overflow: hidden;
+  height: 460px;
   border-radius: 14px;
   border: 1px solid rgba(90, 166, 255, 0.12);
   background:
     radial-gradient(circle at top left, rgba(90, 166, 255, 0.08), transparent 28%),
     linear-gradient(180deg, rgba(8, 14, 31, 0.92), rgba(8, 14, 31, 0.8));
+  cursor: grab;
+  touch-action: none;
 }
 
 .workflow-svg-canvas {
   width: 100%;
-  min-width: 880px;
-  height: auto;
+  height: 100%;
   display: block;
+}
+
+.workflow-svg-shell:active {
+  cursor: grabbing;
 }
 
 .workflow-svg-edge {
@@ -412,6 +421,33 @@ button.btn-sm:hover {
 .workflow-svg-meta {
   fill: var(--muted);
   font-size: 9px;
+}
+
+.workflow-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-tool-button {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(90, 166, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workflow-tool-button:hover {
+  background: rgba(90, 166, 255, 0.16);
+  border-color: rgba(90, 166, 255, 0.5);
+}
+
+.workflow-tool-button-wide {
+  min-width: 70px;
 }
 
 .workflow-tree {
@@ -1136,8 +1172,8 @@ button:disabled:hover {
     align-self: stretch;
   }
 
-  .workflow-svg-canvas {
-    min-width: 620px;
+  .workflow-svg-shell {
+    height: 360px;
   }
 }
 
