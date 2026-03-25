@@ -1,12 +1,21 @@
+import {
+  DEFAULT_ACTION_NAME,
+  DEFAULT_ASSERTION_LIBRARY,
+  DEFAULT_CASE_NAME,
+  createDefaultCases,
+  normalizeActionEntry,
+  normalizeCaseEntry,
+} from '../../src/utils/storageUtils.mjs';
+
 /**
  * Storage Service - Handles localStorage operations for test cases
  * Pure business logic, no DOM manipulation
  */
 export class StorageService {
   static STORAGE_KEY = 'logicInlineCodeTester.workflowContexts.v1';
-  static DEFAULT_ACTION_NAME = 'Inline Code';
-  static DEFAULT_CASE_NAME = 'default';
-  static DEFAULT_ASSERTION_LIBRARY = 'expression';
+  static DEFAULT_ACTION_NAME = DEFAULT_ACTION_NAME;
+  static DEFAULT_CASE_NAME = DEFAULT_CASE_NAME;
+  static DEFAULT_ASSERTION_LIBRARY = DEFAULT_ASSERTION_LIBRARY;
 
   /**
    * Load action suites from localStorage
@@ -91,33 +100,7 @@ export class StorageService {
    * @returns {object} Normalized entry with workflowContext and assertion
    */
   static normalizeCaseEntry(entry, defaultAssertion = 'true', defaultAssertionLibrary = 'expression') {
-    // Backward compatibility: older storage kept plain workflowContext object.
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      return {
-        workflowContext: {},
-        assertion: defaultAssertion,
-        assertionLibrary: defaultAssertionLibrary,
-      };
-    }
-
-    if (Object.prototype.hasOwnProperty.call(entry, 'workflowContext')) {
-      const workflowContext =
-        entry.workflowContext && typeof entry.workflowContext === 'object' && !Array.isArray(entry.workflowContext)
-          ? entry.workflowContext
-          : {};
-      const assertion = typeof entry.assertion === 'string' ? entry.assertion : defaultAssertion;
-      const assertionLibrary =
-        typeof entry.assertionLibrary === 'string' && entry.assertionLibrary
-          ? entry.assertionLibrary
-          : defaultAssertionLibrary;
-      return { workflowContext, assertion, assertionLibrary };
-    }
-
-    return {
-      workflowContext: entry,
-      assertion: defaultAssertion,
-      assertionLibrary: defaultAssertionLibrary,
-    };
+    return normalizeCaseEntry(entry, defaultAssertion, defaultAssertionLibrary);
   }
 
   /**
@@ -128,40 +111,7 @@ export class StorageService {
    * @returns {{ code: string, selectedCaseName: string, workflowContextCases: object, workflowPath: string[]|null }}
    */
   static normalizeActionEntry(entry, defaultCode = '', defaultAssertion = 'true', defaultAssertionLibrary = 'expression') {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      return {
-        code: defaultCode,
-        selectedCaseName: this.DEFAULT_CASE_NAME,
-        workflowContextCases: this.createDefaultCases(defaultAssertion, defaultAssertionLibrary),
-        workflowPath: null,
-      };
-    }
-
-    const workflowContextCasesRaw =
-      entry.workflowContextCases && typeof entry.workflowContextCases === 'object'
-        ? entry.workflowContextCases
-        : this.createDefaultCases(defaultAssertion, defaultAssertionLibrary);
-    const workflowContextCases = {};
-    for (const [caseName, caseEntry] of Object.entries(workflowContextCasesRaw)) {
-      workflowContextCases[caseName] = this.normalizeCaseEntry(
-        caseEntry,
-        defaultAssertion,
-        defaultAssertionLibrary
-      );
-    }
-
-    const caseNames = Object.keys(workflowContextCases);
-    const selectedCaseName =
-      typeof entry.selectedCaseName === 'string' && caseNames.includes(entry.selectedCaseName)
-        ? entry.selectedCaseName
-        : caseNames[0] || this.DEFAULT_CASE_NAME;
-
-    return {
-      code: typeof entry.code === 'string' && entry.code ? entry.code : defaultCode,
-      selectedCaseName,
-      workflowContextCases,
-      workflowPath: Array.isArray(entry.workflowPath) ? entry.workflowPath.filter((part) => typeof part === 'string') : null,
-    };
+    return normalizeActionEntry(entry, defaultCode, defaultAssertion, defaultAssertionLibrary);
   }
 
   /**
@@ -170,39 +120,7 @@ export class StorageService {
    * @returns {object} Default cases object
    */
   static createDefaultCases(defaultAssertion = 'true', defaultAssertionLibrary = this.DEFAULT_ASSERTION_LIBRARY) {
-    const defaultWorkflowContext = `{
-  "actions": {},
-  "trigger": {
-    "name": "When_a_new_email_arrives",
-    "outputs": {
-      "headers": {},
-      "body": {
-        "Body": "Hello World. Contact me at test@example.com and user2@domain.org"
-      }
-    }
-  },
-  "workflow": {
-    "name": "My_logic_app"
-  }
-}`;
-
-    try {
-      return {
-        [this.DEFAULT_CASE_NAME]: {
-          workflowContext: JSON.parse(defaultWorkflowContext),
-          assertion: defaultAssertion,
-          assertionLibrary: defaultAssertionLibrary,
-        },
-      };
-    } catch {
-      return {
-        [this.DEFAULT_CASE_NAME]: {
-          workflowContext: {},
-          assertion: defaultAssertion,
-          assertionLibrary: defaultAssertionLibrary,
-        },
-      };
-    }
+    return createDefaultCases(defaultAssertion, defaultAssertionLibrary);
   }
 
   /**
