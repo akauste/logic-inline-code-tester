@@ -964,7 +964,7 @@ export function App() {
       />
 
       <section className="grid">
-        <div className="panel">
+        <div className="panel workspace-panel">
           <TestCaseManager
             itemNames={actionNames}
             selectedItem={selectedActionName}
@@ -1005,7 +1005,7 @@ export function App() {
             </button>
           </section>
 
-          <section className="panel output-panel">
+          <section className="output-panel">
             <div className="panel-tabs" role="tablist" aria-label="Execution output views">
               {LEFT_OUTPUT_TABS.map((tab) => (
                 <button
@@ -1035,7 +1035,7 @@ export function App() {
           </section>
         </div>
 
-        <div className="panel">
+        <div className="panel workspace-panel">
           <TestCaseManager
             itemNames={caseNames}
             selectedItem={selectedCaseName}

@@ -98,6 +98,13 @@ code {
   padding: 12px;
 }
 
+.workspace-panel {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
 .panel-title {
   font-weight: 700;
   margin-bottom: 8px;
@@ -808,7 +815,7 @@ button.danger:hover {
 }
 
 .output-panel {
-  padding: 12px 14px 14px;
+  margin-top: 14px;
 }
 
 .pre-output {
