@@ -384,6 +384,35 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const element = shellRef.current;
+    if (!element) return undefined;
+
+    function handleNativeWheel(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const multiplier = event.deltaY < 0 ? 1.08 : 1 / 1.08;
+      setZoom((currentZoom) => clampZoom(currentZoom * multiplier));
+    }
+
+    function blockGesture(event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    element.addEventListener('wheel', handleNativeWheel, { passive: false });
+    element.addEventListener('gesturestart', blockGesture);
+    element.addEventListener('gesturechange', blockGesture);
+    element.addEventListener('gestureend', blockGesture);
+
+    return () => {
+      element.removeEventListener('wheel', handleNativeWheel);
+      element.removeEventListener('gesturestart', blockGesture);
+      element.removeEventListener('gesturechange', blockGesture);
+      element.removeEventListener('gestureend', blockGesture);
+    };
+  }, []);
+
   const fitScale = useMemo(() => {
     if (!viewportSize.width || !viewportSize.height || !graph.width || !graph.height) return 1;
     return Math.min(viewportSize.width / graph.width, viewportSize.height / graph.height);
@@ -409,6 +438,8 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
   }
 
   function beginPan(event) {
+    event.preventDefault();
+    event.stopPropagation();
     dragStateRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -422,6 +453,8 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
   function continuePan(event) {
     const dragState = dragStateRef.current;
     if (!dragState || dragState.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
 
     setPan({
       x: dragState.startPanX + (event.clientX - dragState.startX),
@@ -432,14 +465,10 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
   function endPan(event) {
     const dragState = dragStateRef.current;
     if (!dragState || dragState.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
     dragStateRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-  }
-
-  function handleWheel(event) {
-    event.preventDefault();
-    const multiplier = event.deltaY < 0 ? 1.08 : 1 / 1.08;
-    setZoom((currentZoom) => clampZoom(currentZoom * multiplier));
   }
 
   const viewportTransform = `translate(${pan.x}, ${pan.y}) scale(${zoom})`;
@@ -487,7 +516,6 @@ export function WorkflowVisualizer({ importedWorkflow, parsedWorkflowContext, pa
           onPointerMove={continuePan}
           onPointerUp={endPan}
           onPointerLeave={endPan}
-          onWheel={handleWheel}
         >
           <svg
             className="workflow-svg-canvas"
