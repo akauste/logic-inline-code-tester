@@ -23,25 +23,32 @@ body {
 .container {
   max-width: 1680px;
   margin: 0 auto;
-  padding: 20px 24px 28px;
+  padding: 10px 24px 28px;
 }
 
 header h1 {
-  margin: 0 0 6px;
-  font-size: 20px;
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
 }
 
 header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 0 10px;
+  background: linear-gradient(180deg, rgba(11, 16, 32, 0.88), rgba(11, 16, 32, 0.66));
+  backdrop-filter: blur(10px);
 }
 
 .header-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -56,7 +63,7 @@ header {
 @media (min-width: 768px) {
   header {
     flex-direction: row;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
   }
   
@@ -81,7 +88,7 @@ code {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 14px;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .bottom-grid {
@@ -284,7 +291,7 @@ button:hover {
 }
 
 button.btn-sm {
-  padding: 6px 12px;
+  padding: 5px 10px;
   font-size: 11px;
   font-weight: 600;
   border-radius: 6px;
@@ -851,9 +858,9 @@ button.danger:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -871,11 +878,11 @@ button.danger:hover {
 }
 
 .test-status-icon {
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .test-status-text {
-  font-size: 11px;
+  font-size: 10px;
 }
 
 @media (max-width: 900px) {
