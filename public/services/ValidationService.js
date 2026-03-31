@@ -93,11 +93,11 @@ export class ValidationService {
     const issues = [];
     let skippedPaths = 0;
 
-    // Logic Apps Standard inline code exposes a structured `workflowContext`:
-    // - workflowContext.trigger.outputs.{body, headers}
-    // - workflowContext.actions[ActionName].outputs.{body, headers}
-    // We only "tighten" at these structural points; deeper fields under `body`/`headers`
-    // are connector-specific, so we don't validate them.
+    // Logic Apps Standard inline code exposes `workflowContext.trigger` as the trigger()
+    // object, `workflowContext.actions[ActionName]` as actions('<name>'), and
+    // `workflowContext.workflow` as workflow(). We validate the stable top-level object
+    // properties, but we intentionally allow arbitrary nested data under `inputs` and
+    // `outputs` because connector-specific shapes vary widely.
     function isValidWorkflowContextSegments(segments) {
       if (!Array.isArray(segments) || segments.length === 0) return { valid: false, reason: 'Empty path' };
 
@@ -115,10 +115,15 @@ export class ValidationService {
           'endTime',
           'scheduledTime',
           'trackingId',
-          'clientTrackingId',
-          'originHistoryName',
           'code',
           'status',
+          'trackedProperties',
+          'correlation',
+          'error',
+          'inputsLink',
+          'outputsLink',
+          'clientTrackingId',
+          'originHistoryName',
         ]);
 
         if (segments.length >= 2 && !allowedTriggerKeys.has(segments[1])) {
@@ -128,29 +133,24 @@ export class ValidationService {
           };
         }
 
-        // trigger.outputs.{body, headers}
-        if (segments[1] === 'outputs' && segments.length >= 3) {
-          const next = segments[2];
-          if (next !== 'body' && next !== 'headers') {
-            return { valid: false, reason: `trigger.outputs.${String(next)} is not a supported shape` };
-          }
-        }
         return { valid: true };
       }
 
       if (root === 'actions') {
-        // actions[ActionName].outputs.{body, headers}
         if (segments.length >= 3) {
-          const next = segments[2];
-          if (next !== 'outputs' && next !== 'inputs') {
-            return { valid: false, reason: `actions[ActionName].${String(next)} is not a supported shape` };
-          }
-
-          if (next === 'outputs' && segments.length >= 4) {
-            const outputKey = segments[3];
-            if (outputKey !== 'body' && outputKey !== 'headers') {
-              return { valid: false, reason: `actions[ActionName].outputs.${String(outputKey)} is not a supported shape` };
-            }
+          const allowedActionKeys = new Set([
+            'name',
+            'startTime',
+            'endTime',
+            'inputs',
+            'outputs',
+            'status',
+            'code',
+            'trackingId',
+            'clientTrackingId',
+          ]);
+          if (!allowedActionKeys.has(segments[2])) {
+            return { valid: false, reason: `actions[ActionName].${String(segments[2])} is not a supported property` };
           }
         }
 
@@ -269,23 +269,23 @@ export class ValidationService {
 
     // Only validate structural parts that are stable across runs.
     // We look for these prefixes:
-    // - trigger.outputs.{body,headers}
-    // - actions[ActionName].outputs.{body,headers}
+    // - trigger.inputs / trigger.outputs
+    // - actions[ActionName].inputs / actions[ActionName].outputs
     const requiredStructuralPathsSet = new Set();
     const requiredStructuralPaths = [];
     for (const segs of validPaths) {
-      if (segs[0] === 'trigger' && segs[1] === 'outputs' && segs.length >= 3) {
-        const key = JSON.stringify(['trigger', 'outputs', segs[2]]);
+      if (segs[0] === 'trigger' && (segs[1] === 'outputs' || segs[1] === 'inputs')) {
+        const key = JSON.stringify(['trigger', segs[1]]);
         if (!requiredStructuralPathsSet.has(key)) {
           requiredStructuralPathsSet.add(key);
-          requiredStructuralPaths.push(['trigger', 'outputs', segs[2]]);
+          requiredStructuralPaths.push(['trigger', segs[1]]);
         }
       }
-      if (segs[0] === 'actions' && segs[2] === 'outputs' && segs.length >= 4) {
-        const key = JSON.stringify(['actions', segs[1], 'outputs', segs[3]]);
+      if (segs[0] === 'actions' && (segs[2] === 'outputs' || segs[2] === 'inputs')) {
+        const key = JSON.stringify(['actions', segs[1], segs[2]]);
         if (!requiredStructuralPathsSet.has(key)) {
           requiredStructuralPathsSet.add(key);
-          requiredStructuralPaths.push(['actions', segs[1], 'outputs', segs[3]]);
+          requiredStructuralPaths.push(['actions', segs[1], segs[2]]);
         }
       }
     }

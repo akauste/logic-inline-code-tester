@@ -13,11 +13,11 @@ import {
 test('collectInlineCodeActionsFromMap ignores malformed entries without crashing', () => {
   const found = collectInlineCodeActionsFromMap({
     Good: {
-      type: 'ExecuteJavaScriptCode',
+      type: 'JavaScriptCode',
       inputs: { code: 'return 1;' },
     },
     MissingCode: {
-      type: 'ExecuteJavaScriptCode',
+      type: 'JavaScriptCode',
       inputs: {},
     },
     BadEntry: null,
@@ -34,14 +34,14 @@ test('extractInlineCodeActions finds nested inline code actions across workflow 
           type: 'Scope',
           actions: {
             InlineOne: {
-              type: 'ExecuteJavaScriptCode',
+              type: 'JavaScriptCode',
               inputs: { code: 'return 1;' },
             },
           },
           else: {
             actions: {
               InlineElse: {
-                type: 'ExecuteJavaScriptCode',
+                type: 'JavaScriptCode',
                 inputs: { code: 'return 2;' },
               },
             },
@@ -50,7 +50,7 @@ test('extractInlineCodeActions finds nested inline code actions across workflow 
             Success: {
               actions: {
                 InlineCase: {
-                  type: 'ExecuteJavaScriptCode',
+                  type: 'JavaScriptCode',
                   inputs: { code: 'return 3;' },
                 },
               },
@@ -72,7 +72,7 @@ test('extractInlineCodeActions supports root actions outside definition and retu
   const workflow = {
     actions: {
       InlineRoot: {
-        type: 'ExecuteJavaScriptCode',
+        type: 'JavaScriptCode',
         inputs: { code: 'return 1;' },
       },
     },
@@ -87,7 +87,7 @@ test('getRootActions and getChildActionMap cover alternate branch types', () => 
     default: {
       actions: {
         InlineDefault: {
-          type: 'ExecuteJavaScriptCode',
+          type: 'JavaScriptCode',
           inputs: { code: 'return "default";' },
         },
       },
@@ -96,7 +96,7 @@ test('getRootActions and getChildActionMap cover alternate branch types', () => 
       Success: {
         actions: {
           InlineCase: {
-            type: 'ExecuteJavaScriptCode',
+            type: 'JavaScriptCode',
             inputs: { code: 'return "case";' },
           },
         },
@@ -120,7 +120,7 @@ test('updateWorkflowInlineCode updates a nested action path in place', () => {
           type: 'Scope',
           actions: {
             InlineOne: {
-              type: 'ExecuteJavaScriptCode',
+              type: 'JavaScriptCode',
               inputs: { code: 'return 1;' },
             },
           },
@@ -143,7 +143,7 @@ test('updateWorkflowInlineCode updates default and case branch actions and creat
           default: {
             actions: {
               InlineDefault: {
-                type: 'ExecuteJavaScriptCode',
+                type: 'JavaScriptCode',
               },
             },
           },
@@ -151,7 +151,7 @@ test('updateWorkflowInlineCode updates default and case branch actions and creat
             Success: {
               actions: {
                 InlineCase: {
-                  type: 'ExecuteJavaScriptCode',
+                  type: 'JavaScriptCode',
                   inputs: { code: 'return 1;' },
                 },
               },

@@ -48,7 +48,7 @@ export function ImportWorkflowModal({
           <div className="modal-section">
             <p className="modal-hint">
               Paste a Logic App workflow JSON payload. Inline actions with type
-              <code>ExecuteJavaScriptCode</code> will be detected automatically.
+              <code>JavaScriptCode</code> will be detected automatically.
             </p>
             <textarea
               ref={textareaRef}
@@ -82,7 +82,7 @@ export function ImportWorkflowModal({
             ) : actionCount === 0 ? (
               <div className="import-preview-state">
                 No inline JavaScript actions found. Expected actions of type
-                <code>ExecuteJavaScriptCode</code>.
+                <code>JavaScriptCode</code>.
               </div>
             ) : (
               <div className="import-preview-list" role="list" aria-label="Detected inline actions">

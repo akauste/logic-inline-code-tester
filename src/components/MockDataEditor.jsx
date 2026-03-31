@@ -25,17 +25,14 @@ export function MockDataEditor({
 }) {
   const [drafts, setDrafts] = useState({});
 
-  const seed = useMemo(
+  const editorScopeKey = useMemo(
     () =>
       JSON.stringify({
         selectedActionName,
         selectedCaseName,
-        requirements: requirements.map((requirement) => ({
-          key: requirement.key,
-          value: getNestedValue(workflowContext, requirement.path),
-        })),
+        requirementKeys: requirements.map((requirement) => requirement.key),
       }),
-    [requirements, selectedActionName, selectedCaseName, workflowContext]
+    [requirements, selectedActionName, selectedCaseName]
   );
 
   useEffect(() => {
@@ -44,7 +41,7 @@ export function MockDataEditor({
       nextDrafts[requirement.key] = toPrettyJson(getNestedValue(workflowContext, requirement.path));
     }
     setDrafts(nextDrafts);
-  }, [requirements, seed, workflowContext]);
+  }, [editorScopeKey, requirements]);
 
   return (
     <section className="mock-editor">

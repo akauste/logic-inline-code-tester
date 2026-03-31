@@ -20,7 +20,7 @@ const HELP_SECTIONS = [
   {
     title: 'Workflow Import And Export',
     points: [
-      '`Import Workflow` accepts Logic App workflow JSON and detects `ExecuteJavaScriptCode` actions automatically.',
+      '`Import Workflow` accepts Logic App workflow JSON and detects `JavaScriptCode` actions automatically.',
       'Each detected inline action gets its own separate code editor and test suite.',
       '`Export Workflow` keeps the original workflow structure and writes your edited JavaScript back into the matching inline actions.',
       '`Export Workflow` is available only after you imported a workflow, because the original JSON structure must be preserved.',
