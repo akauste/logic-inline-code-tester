@@ -1,3 +1,5 @@
+const INLINE_JS_ACTION_TYPES = new Set(['JavaScriptCode', 'ExecuteJavaScriptCode']);
+
 export function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = []) {
   if (!actionMap || typeof actionMap !== 'object') return found;
 
@@ -5,7 +7,7 @@ export function collectInlineCodeActionsFromMap(actionMap, prefix = [], found = 
     if (!action || typeof action !== 'object') continue;
 
     const path = [...prefix, actionName];
-    if (action.type === 'ExecuteJavaScriptCode' && typeof action.inputs?.code === 'string') {
+    if (INLINE_JS_ACTION_TYPES.has(action.type) && typeof action.inputs?.code === 'string') {
       found.push({
         name: path.join(' / '),
         code: action.inputs.code,

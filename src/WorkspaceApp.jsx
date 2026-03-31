@@ -191,14 +191,14 @@ function summarizeMockRequirements(code) {
       let title = '';
       let category = '';
 
-      if (segments[0] === 'trigger' && segments[1] === 'outputs' && (segments[2] === 'body' || segments[2] === 'headers')) {
-        normalizedPath = ['trigger', 'outputs', segments[2]];
-        title = `Trigger ${segments[2]}`;
+      if (segments[0] === 'trigger' && (segments[1] === 'outputs' || segments[1] === 'inputs')) {
+        normalizedPath = ['trigger', segments[1]];
+        title = `Trigger ${segments[1]}`;
         category = 'Trigger';
       } else if (segments[0] === 'actions' && typeof segments[1] === 'string') {
-        if (segments[2] === 'outputs' && (segments[3] === 'body' || segments[3] === 'headers')) {
-          normalizedPath = ['actions', segments[1], 'outputs', segments[3]];
-          title = `${segments[1]} ${segments[3]}`;
+        if (segments[2] === 'outputs') {
+          normalizedPath = ['actions', segments[1], 'outputs'];
+          title = `${segments[1]} outputs`;
           category = 'Action Output';
         } else if (segments[2] === 'inputs') {
           normalizedPath = ['actions', segments[1], 'inputs'];

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+const INLINE_JS_ACTION_TYPES = new Set(['JavaScriptCode', 'ExecuteJavaScriptCode']);
+
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 72;
 const COLUMN_GAP = 30;
@@ -74,7 +76,7 @@ function buildWorkflowGraph({ importedWorkflow, workflowContext }) {
           name: actionName,
           type: action?.type || (source === 'mock' ? 'Mocked Action' : 'Action'),
           path,
-          isInline: action?.type === 'ExecuteJavaScriptCode',
+          isInline: INLINE_JS_ACTION_TYPES.has(action?.type),
           kind: 'action',
         })
       );
